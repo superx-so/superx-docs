@@ -1,0 +1,88 @@
+---
+title: "MCP server"
+description: "Connect Claude Code, Codex, ChatGPT, and Claude directly to your SuperX data with the hosted SuperX MCP server."
+---
+
+SuperX hosts a remote MCP (Model Context Protocol) server at `https://api.superx.so/v1/mcp`. Any MCP client can read your X (Twitter) analytics, posts, contacts, contact lists, audience replies, signal agents and their leads, tags, scheduled queue, and long-form Articles, search a library of high-performing posts for inspiration, schedule, edit, or delete posts (with image attachments), manage contact list members, create, pause, resume, or delete signal agents (automated lead finders), and create, edit, schedule, and publish Articles with AI cover generation, using the same API keys as the REST API. Nothing to install or run yourself.
+
+You need an API key from [app.superx.so/account?tab=developers](https://app.superx.so/account?tab=developers) and an active SuperX subscription.
+
+## Claude Code and Codex (header auth)
+
+CLI-class clients send the key as a normal Authorization header. This is the preferred mode.
+
+```bash
+claude mcp add --transport http superx https://api.superx.so/v1/mcp --header "Authorization: Bearer YOUR_API_KEY"
+```
+
+Replace `YOUR_API_KEY` with your `sxk_...` key. For Codex, add a streamable HTTP MCP server with the same URL and header in its MCP configuration.
+
+## ChatGPT and claude.ai (keyed URL)
+
+Remote connectors that cannot send custom headers use a URL with the key embedded:
+
+```bash
+https://api.superx.so/v1/mcp/YOUR_API_KEY
+```
+
+- **ChatGPT**: Settings, then Connectors, then add a custom connector with this URL. Set authentication to none (the key is in the URL).
+- **claude.ai**: Settings, then Connectors, then add a custom connector (remote MCP server) with this URL, authentication none.
+
+The Developers tab in the SuperX app shows the ready-to-paste URL once, right when you create a key.
+
+## Tools
+
+| Tool | Description |
+| --- | --- |
+| `get_account_overview` | Follower count and trend, plus posting totals over a date range |
+| `get_post_analytics` | Published posts with per-post metrics, top performers or most recent |
+| `get_top_contacts` | The people who engage with the account most (90-day window) |
+| `get_contact_history` | One contact's reply history to the account |
+| `get_my_replies` | Replies the account has sent, newest or best-performing first |
+| `get_scheduled_posts` | Drafts and the scheduled queue on the main account |
+| `find_inspiration` | Search a library of 50M+ high-performing posts by topic |
+| `schedule_post` | Create a draft or scheduled post or thread on the main account, with optional images, title, scratchpad notes, and tags |
+| `delete_scheduled_post` | Delete a draft or scheduled post on the main account by id |
+| `list_tags` | List the account's tags (id, name, color) |
+| `update_scheduled_post` | Edit a draft or scheduled post: text, images, title, scratchpad, tags, time, or draft/scheduled status |
+| `list_articles` | List long-form X Articles (title, status, times) |
+| `get_article` | One article with its full body as markdown |
+| `create_article` | Create an article draft on the main account (markdown body) |
+| `update_article` | Edit an article's title, markdown body, or cover URL |
+| `schedule_article` | Schedule or reschedule an article (more than 2 minutes ahead) |
+| `publish_article` | Publish an article to X immediately (irreversible; needs X Premium) |
+| `generate_article_cover` | Generate an AI cover from the article's title, attached by default (60-100s, spends AI credits) |
+| `get_audience_replies` | Replies the account has received from its audience across all its posts |
+| `list_contact_lists` | The account's contact lists (system lists are read-only) |
+| `get_contact_list_members` | Members of a list the user created |
+| `add_contact_list_member` | Add a person to a contact list by handle or X user id |
+| `remove_contact_list_member` | Remove a member from a contact list |
+| `list_signal_agents` | The account's signal agents (automated lead finders) and what they watch |
+| `get_signal_leads` | Leads the signal agents found, with match score, rationale, and provenance |
+| `create_signal_agent` | Create a signal agent on the main account; keywords and the destination list can be auto-generated |
+| `set_signal_agent_status` | Pause or resume a signal agent |
+| `delete_signal_agent` | Delete a signal agent (its saved leads and contact list stay untouched) |
+| `upload_media_from_url` | Download an image from a public https URL and store it for attaching to posts (JPG, PNG, WEBP up to 5MB; GIF up to 15MB) |
+
+## Scopes
+
+The fifteen read tools work with any API key. The write tools (`schedule_post`, `update_scheduled_post`, `delete_scheduled_post`, `create_article`, `update_article`, `schedule_article`, `publish_article`, `generate_article_cover`, `add_contact_list_member`, `remove_contact_list_member`, `create_signal_agent`, `set_signal_agent_status`, `delete_signal_agent`, and `upload_media_from_url`) need a key with the **write** scope; with a read-only key they return an insufficient-scope error the model can relay. Writes are limited to your main account.
+
+To attach images to a post, call `upload_media_from_url` first, then pass the returned `object_key` in the per-part `media` field of `schedule_post` or `update_scheduled_post` (up to 4 images or exactly 1 GIF per part, optional `alt_text`). `upload_media_from_url` counts against a daily quota of 100 uploads per key. On `update_scheduled_post`, replacement posts sent without `media` remove the media those parts carried; re-include the existing `object_key`s to keep them. Video is not supported yet.
+
+Creating a signal agent returns immediately, but the agent finds leads over the following minutes and days; there is no synchronous search. Check `get_signal_leads` later for what it found.
+
+Timestamps passed to the scheduling tools must be ISO-8601 with an explicit `Z` or numeric offset. Naive local times are rejected. A new time alone never schedules a draft post; `update_scheduled_post` promotes only when `status` is set to `scheduled`. Article bodies are markdown in both directions; `publish_article` is live and irreversible, and `generate_article_cover` spends AI credits against daily and monthly caps.
+
+## Security
+
+The keyed URL **is** your API key. Treat it like a password: share it only with the connector, keep it out of chat transcripts and screenshots, and rotate the key from the Developers tab if it ever leaks. Prefer header auth wherever the client supports it. SuperX redacts the key from its own request logs.
+
+## Troubleshooting
+
+| Symptom | Cause |
+| --- | --- |
+| `401 invalid_api_key` | Wrong, mistyped, or revoked key. Create or rotate a key in the Developers tab. |
+| `403 subscription_required` | The key owner's SuperX subscription is not active. |
+| `405 Method not allowed` | The endpoint is POST-only. Some clients probe with GET first; that is harmless. |
+| Duplicate scheduled posts | `schedule_post` has no idempotency. If a call timed out or was retried, check `get_scheduled_posts` before calling it again. |

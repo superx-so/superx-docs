@@ -1,0 +1,69 @@
+---
+title: "Errors"
+description: "The error envelope, every error code, and one legacy exception to know about."
+---
+
+## The error envelope
+
+Errors return an appropriate HTTP status and this JSON body:
+
+```json
+{
+  "error": {
+    "code": "invalid_parameter",
+    "message": "since must be a UTC ISO-8601 timestamp"
+  }
+}
+```
+
+`code` is stable and machine-readable; branch on it, not on `message` (messages may be reworded). Rate-limit errors add a `retry_after` field inside the envelope.
+
+## Legacy exception: subscription errors
+
+One middleware predates the v1 envelope and is shared with the SuperX app, so two subscription-related responses use a **plain string** `error` field instead of the object envelope:
+
+```json
+{ "error": "subscription_required: The SuperX API requires an active subscription" }
+```
+
+- `403` when the subscription has lapsed (string starts with `subscription_required:`)
+- `500` if subscription verification itself fails (string starts with `internal_error:`)
+
+To handle every case, check whether `error` is a string or an object. All other errors, including every other `403`, use the object envelope.
+
+## Error codes
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_parameter` | A query or body parameter is missing, malformed, or out of range (including timestamps without an explicit `Z` or offset) |
+| 400 | `invalid_request` | The scheduling service rejected the post payload |
+| 400 | `invalid_media` | An `object_key` that is unknown or not yours; upload first via `POST /v1/media` |
+| 400 | `media_not_uploaded` | The upload was presigned but the bytes were never PUT (or the file is empty) |
+| 400 | `unsupported_media_type` | Not a supported image (JPG, PNG, WEBP, or GIF); videos land here too |
+| 400 | `media_too_large` | Over the size cap: 5MB for images, 15MB for GIFs |
+| 400 | `fetch_failed` | The MCP `upload_media_from_url` download failed, timed out, or followed too many redirects |
+| 400 | `url_not_allowed` | The MCP `upload_media_from_url` URL is not plain public https (private or reserved addresses, embedded credentials, and non-https schemes are rejected) |
+| 400 | `range_too_large` | Analytics range beyond the 366-day maximum |
+| 401 | `unauthorized` | Missing or malformed `Authorization` header |
+| 401 | `invalid_api_key` | Unknown or revoked key |
+| 403 | `insufficient_scope` | Read-only key used on a non-GET endpoint |
+| 403 | `writes_main_account_only` | Write attempted for a linked account |
+| 403 | `onboarding_required` | Finish onboarding in the SuperX app before scheduling posts |
+| 403 | `post_quota_exceeded` | Post quota for the billing period is used up |
+| 403 | (legacy string) | Subscription lapsed; see above |
+| 404 | `account_not_found` | `account_id` is not one of your accounts |
+| 404 | `not_found` | No such resource for this account (for example a scheduled post id) |
+| 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
+| 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
+| 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
+| 500 | `internal_error` | Unexpected server error |
+| 502 | `upstream_error` | A dependent SuperX service returned an unexpected response |
+| 503 | `media_not_configured` | Media storage is not configured on this server; try again later |
+| 503 | `accounts_unavailable` | Linked-account verification temporarily unavailable (main account still works) |
+| 503 | `upstream_unavailable` | The scheduling service is temporarily unreachable; safe to retry (reuse your `Idempotency-Key` on POST) |
+
+Retired code: `media_not_supported` (posts were text-only before 2026-07-09). Posts now take images via `POST /v1/media` plus `parts[].media`; a top-level `media` field on the create or update body returns `400 invalid_parameter` with a message pointing at `parts[].media`.
+
+## Fail-closed behavior
+
+When the API cannot verify something, it refuses rather than guesses: unverifiable linked accounts return `503 accounts_unavailable` (never stale data), and an unreachable scheduling service returns `503 upstream_unavailable` (never a silent success).

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "SuperX",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.png",
+  "colors": {
+    "primary": "#F4503B",
+    "light": "#FB7359",
+    "dark": "#D93820"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["introduction", "authentication", "accounts"]
+          },
+          {
+            "group": "Using the API",
+            "pages": ["rate-limits", "errors", "idempotency"]
+          },
+          {
+            "group": "CLI & Agents",
+            "pages": ["cli", "mcp"]
+          },
+          {
+            "group": "Updates",
+            "pages": ["changelog"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "openapi": "api-reference/openapi.yaml"
+      }
+    ]
+  },
+  "footerSocials": {
+    "x": "https://x.com/superx_so",
+    "website": "https://superx.so"
+  }
+}

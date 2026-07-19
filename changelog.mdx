@@ -1,0 +1,99 @@
+---
+title: "Changelog"
+description: "API changes, newest first."
+---
+
+## 2026-07-09
+
+Images on posts:
+
+- `POST /v1/media`: presign an image upload (`filename`, `file_type`, `size`; JPG/PNG/WEBP up to 5MB, GIF up to 15MB). PUT the bytes to the returned `upload_url` within 20 minutes, then attach the `object_key` to posts. Uploads never attached to a post are deleted after 24 hours. Quota: 100 uploads per key per day
+- `POST /v1/scheduled-posts` and `PATCH /v1/scheduled-posts/{id}`: `parts[].media` attaches images as `[{ object_key, alt_text? }]`: up to 4 images or exactly 1 GIF per part, `alt_text` up to 1,000 characters (delivered to X at publish time). The attach step verifies the real bytes: size and magic-byte type, not the upload declaration
+- PATCH `parts` remains a full replace, now including media: a part sent without `media` drops the images it carried; re-include the current `object_key`s to keep them (they are now visible on all scheduled-post responses)
+- New error codes: `invalid_media`, `media_not_uploaded`, `unsupported_media_type`, `media_too_large`, `media_quota_exceeded` (429), `media_not_configured` (503). `media_not_supported` is gone from create/PATCH
+- CLI: `superx media:upload <file>`, plus `--media`/`--alt-text` on `scheduled:create`/`scheduled:update` and `--parts-json` for threads with media
+- MCP: new `upload_media_from_url` tool (SSRF-hardened server-side fetch; twenty-nine tools total); `schedule_post` and `update_scheduled_post` accept per-part `media`
+
+## 2026-07-08
+
+Signals writes (create, pause, resume, delete):
+
+- `POST /v1/signals/agents`: create a signal agent from the API. `name` and `icp_description` are required; `precision_mode` defaults to `high`. Omit `keywords` and 1-3 watches are auto-suggested from the ICP; omit `destination_list_id` and a contact list named `Leads: <agent name>` is created for you (`destination_list_created: true` in the response). The agent starts finding leads over the following minutes and days; there is no synchronous search
+- `PATCH /v1/signals/agents/{id}`: status-only lifecycle (`active` | `paused`). Other fields are edited in the SuperX app
+- `DELETE /v1/signals/agents/{id}`: delete an agent; its saved leads and contact list stay untouched
+- `Idempotency-Key` supported on agent create; plan limits surface as 403 `cap_reached`
+- Writes are main account only and need the write scope
+- CLI: `superx signals:create-agent`, `signals:pause-agent`, `signals:resume-agent`, `signals:delete-agent`
+- MCP: three new tools: `create_signal_agent`, `set_signal_agent_status`, `delete_signal_agent` (twenty-eight tools total)
+- Ask SuperX can now propose a signal agent for approval when you ask it to find leads
+
+## 2026-07-08
+
+Signals (read-only):
+
+- `GET /v1/signals/agents`: the account's signal agents, the automated lead finders from the SuperX app, with their status, ICP description, watched signals (profiles, followers, keywords, lists), and deposited-lead counts. An agent's `destination_list_id` joins to `/v1/contact-lists` for the target list
+- `GET /v1/signals/leads`: the leads those agents have found, newest first, with the person's profile, `icp_score` and `icp_rationale`, a `deposited` flag with `deposited_at` (whether the lead has been saved to the agent's contact list yet), `discovered_at`, and a `provenance` object describing how the lead was discovered. Filters: `agent_id` (unknown id returns 404 `agent_not_found`), `deposited=true|false`, `since`/`until` on discovery time, pagination (`limit` max 100, default 50)
+- The API surface is read-only: agents are created, paused, and edited in the SuperX app
+- CLI: `superx signals:agents`, `superx signals:leads`
+- MCP: two new tools: `list_signal_agents`, `get_signal_leads` (twenty-five tools total)
+- Ask SuperX gains a matching signal-leads tool
+
+## 2026-07-08
+
+Audience replies and contact lists:
+
+- `GET /v1/replies/received`: every stored reply the account has received across all its posts, with the replier's profile, likes, and the replied-to post (`sort=recent|most_liked`, `since`/`until`, pagination)
+- Contact lists (the saved people-collections from the SuperX app): `GET /v1/contact-lists` (system lists appear with `is_system` and `kind` but are read-only and index-only), `GET /v1/contact-lists/{id}/members` (manual lists; `q` filter, pagination, 90-day `engaged_count` per member), `POST /v1/contact-lists/{id}/members` (add by `handle` or `x_user_id`; re-adding returns the existing member with `duplicate: true`), `DELETE /v1/contact-lists/{id}/members/{memberId}`
+- Member writes are main account only and need the write scope; there is no bulk-add endpoint
+- CLI: `superx replies:received`, `superx lists:list/members/add-member/remove-member`
+- MCP: five new tools: `get_audience_replies`, `list_contact_lists`, `get_contact_list_members`, `add_contact_list_member`, `remove_contact_list_member` (twenty-three tools total)
+- Ask SuperX gains a matching audience-replies tool
+
+## 2026-07-07
+
+X Articles (long-form posts):
+
+- Articles CRUD: `GET/POST /v1/articles`, `GET/PATCH/DELETE /v1/articles/{id}`. Bodies are **markdown in both directions** (headings, lists, blockquotes, bold/italic/strike, links, images by URL, bare X post URLs as embeds); unsupported constructs degrade gracefully and are reported in a `warnings` array
+- Lifecycle: `POST /v1/articles/{id}/schedule` (more than 2 minutes ahead; deducts post quota, refunded on unschedule/delete), `POST /v1/articles/{id}/unschedule`, and `POST /v1/articles/{id}/publish` (immediate, irreversible, requires X Premium on the connected account)
+- AI covers: `POST /v1/articles/{id}/cover` generates a cover from the article's title and attaches it by default (`attach: false` to skip). Takes 60-100 seconds and spends AI credits against daily and monthly caps; 429 responses carry the remaining counters
+- `Idempotency-Key` supported on article create, publish, schedule, and cover generation
+- CLI: `superx articles:list/get/create/update/delete/publish/schedule/unschedule/cover`, with markdown bodies from `--file`, `--content`, or piped stdin
+- MCP: seven new tools: `list_articles`, `get_article`, `create_article`, `update_article`, `schedule_article`, `publish_article`, `generate_article_cover` (eighteen tools total)
+
+## 2026-07-07
+
+Drafts, editing, and tags:
+
+- `PATCH /v1/scheduled-posts/{id}`: edit a draft or scheduled post. Only the fields you send change; text edits, new times, title/scratchpad, tag replacement, and explicit `status` transitions (`draft` <-> `scheduled`, riding the normal quota deduct/refund). A `scheduled_for` alone never promotes a draft.
+- `POST /v1/scheduled-posts` now accepts `title` (max 300 chars), `scratchpad` (max 30,000 chars), and `tags` (up to 20 tag ids); all three appear in the responses and in `GET /v1/scheduled-posts`, which also gains a `tags` filter (comma list, any-of)
+- Tags CRUD: `GET/POST /v1/tags`, `PATCH/DELETE /v1/tags/{id}`
+- `status=draft` on `GET /v1/scheduled-posts` now includes legacy board drafts (previously hidden internal statuses), reported as `"draft"`
+- CLI: `superx scheduled:update`, `superx tags:list/create/update/delete`, `scheduled:create --title --scratchpad --tag`, `scheduled:list --tags`
+- MCP: new `list_tags` and `update_scheduled_post` tools (eleven tools total); `schedule_post` accepts `title`, `scratchpad`, and `tags`
+
+## 2026-07-07
+
+Inspiration search:
+
+- `GET /v1/inspiration`: search a library of 50M+ real high-performing posts by topic, with engagement and author-size filters, six sort orders (including `outlier`, which surfaces posts that beat the norm for their author's follower tier), and an `outlier_score` on every result
+- CLI: `superx inspiration:search <query>`
+- MCP: new `find_inspiration` and `delete_scheduled_post` tools (nine tools total); `schedule_post` now accepts threads up to 25 parts, matching the REST API
+
+## 2026-07-06
+
+CLI and agent skill:
+
+- `superx-cli` on npm: the `superx` binary, a command-line client for the whole API (posts, analytics, contacts, scheduling) with clean JSON output. See [CLI & agent skill](/cli).
+- `superx-agent` skill for Claude Code and compatible agents: `npx skills add superx-so/superx-agent`. Includes a growth playbook the agent follows when creating drafts.
+
+## 2026-07-06
+
+Initial release of the SuperX public API v1:
+
+- API keys with read/write scopes, managed from Account > Developers in the SuperX app
+- Identity: `GET /v1/me`, `GET /v1/accounts`
+- Content: `GET /v1/posts`, `GET /v1/replies`
+- Analytics: `GET /v1/posts/analytics`
+- Audience: `GET /v1/contacts`, `GET /v1/contacts/{id}/replies`
+- Scheduling: `GET /v1/scheduled-posts`, `POST /v1/scheduled-posts` (with `Idempotency-Key` support), `DELETE /v1/scheduled-posts/{id}`
+- Machine-readable quickstart at `GET /v1/docs`

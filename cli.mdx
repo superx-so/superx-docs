@@ -1,0 +1,108 @@
+---
+title: "CLI & agent skill"
+description: "Use the SuperX API from your terminal with the superx CLI, or hand it to an AI agent with the superx-agent skill."
+---
+
+The `superx` CLI is a thin client for the SuperX API: every command maps to a `/v1` endpoint and prints clean JSON. It doubles as the tool the `superx-agent` skill teaches AI agents to use.
+
+## Install
+
+```bash
+npm install -g superx-cli
+```
+
+Requires Node.js 18 or newer. The package is `superx-cli`; the installed binary is `superx`.
+
+## Log in
+
+Create an API key in the SuperX app at [app.superx.so/account?tab=developers](https://app.superx.so/account?tab=developers), then:
+
+```bash
+superx login
+```
+
+This prints the key page URL, prompts you to paste the key, validates it against the API, and saves it to `~/.superx/credentials.json` (file mode 0600). Use `superx login --key "sxk_..."` for a non-interactive login, `superx status` to verify, and `superx logout` to remove the stored key.
+
+## Authentication for CI and agents
+
+Set an environment variable instead of logging in:
+
+```bash
+export SUPERX_API_KEY=sxk_...
+```
+
+The credentials file takes priority over the environment variable when both exist. To point the CLI at a different API host, set `SUPERX_API_URL` to a full base URL including the path (default: `https://api.superx.so/v1`).
+
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `superx login` | Authenticate with a SuperX API key (guided paste or `--key`) |
+| `superx logout` | Remove stored credentials (`~/.superx/credentials.json`) |
+| `superx status` | Check authentication, plan, and current rate-limit state |
+| `superx me` | Show the key owner, plan, and API key details |
+| `superx accounts` | List the X accounts this key can read (main account first) |
+| `superx posts:list` | List published posts with engagement metrics |
+| `superx posts:analytics` | Account analytics: totals, daily series, follower change (default: last 30 days) |
+| `superx replies:list` | List replies the account has sent (newest first) |
+| `superx replies:received` | List replies the audience has sent the account across all its posts |
+| `superx inspiration:search <query>` | Search a library of 50M+ high-performing posts for inspiration |
+| `superx contacts:list` | List the people who engage with you most |
+| `superx contacts:replies <id>` | List a contact's replies to you (their id from `contacts:list`) |
+| `superx lists:list` | List your contact lists (system lists are read-only) |
+| `superx lists:members <id>` | List the members of a contact list you created (`--q` filters) |
+| `superx lists:add-member <id>` | Add a person to a contact list (`--handle` or `--x-user-id`) |
+| `superx lists:remove-member <id> <memberId>` | Remove a member from a contact list |
+| `superx signals:agents` | List your signal agents (automated lead finders) with their watched signals |
+| `superx signals:leads` | List the leads your signal agents have found (`--agent`, `--deposited`, `--since`/`--until` filters) |
+| `superx signals:create-agent` | Create a signal agent (`--name`, `--icp` required; repeat `--keyword` for 1-5 watches or omit to auto-suggest; `--list-id` or omit to auto-create a list) |
+| `superx signals:pause-agent <id>` | Pause a signal agent (it stops finding leads until resumed) |
+| `superx signals:resume-agent <id>` | Resume a paused signal agent |
+| `superx signals:delete-agent <id>` | Delete a signal agent (its saved leads and contact list stay untouched) |
+| `superx media:upload <file>` | Upload a local image (JPG, PNG, WEBP, GIF) and print its `object_key` for `--media` |
+| `superx scheduled:list` | List drafts and the scheduled queue (`--tags` filters by tag ids) |
+| `superx scheduled:create` | Create a draft (no `--at`) or scheduled post; repeat `--part` for a thread; `--media`/`--alt-text` attach images; `--title`, `--scratchpad`, `--tag` add organizer fields |
+| `superx scheduled:update <id>` | Edit a draft or scheduled post; only the flags you pass change (`--status scheduled` promotes; text replacement without `--media` removes the post's images) |
+| `superx scheduled:delete <id>` | Delete a draft or scheduled post by id |
+| `superx tags:list` | List your tags (id, name, color) |
+| `superx tags:create <name>` | Create a tag (`--color` picks a palette color, default blue) |
+| `superx tags:update <id>` | Rename and/or recolor a tag |
+| `superx tags:delete <id>` | Delete a tag (it is removed from every post that carries it) |
+| `superx articles:list` | List long-form X Articles (`--status` filters) |
+| `superx articles:get <id>` | Get one article with its body as markdown |
+| `superx articles:create` | Create an article draft; body via `--content`, `--file`, or piped stdin (markdown) |
+| `superx articles:update <id>` | Edit an article's title, body, or cover; only the flags you pass change |
+| `superx articles:delete <id>` | Delete an article (scheduled articles refund their quota) |
+| `superx articles:schedule <id>` | Schedule or reschedule an article (`--at`, more than 2 minutes ahead) |
+| `superx articles:unschedule <id>` | Pull a scheduled article back to draft (quota refunds) |
+| `superx articles:publish <id>` | Publish an article to X now (irreversible; needs X Premium) |
+| `superx articles:cover <id>` | Generate an AI cover from the title (60-100s, spends AI credits; `--no-attach` to skip attaching) |
+| `superx docs` | Print the SuperX API quickstart (markdown, no auth needed) |
+
+Flags mirror the API's query parameters: `--account`, `--limit`, `--page`, `--since`/`--until`, `--sort`, `--type`, `--status`, `--from`/`--to`. Run any command with `--help` for its full flag list and examples.
+
+Note that drafts have no scheduled time, so `--from`/`--to` filters on `scheduled:list` exclude drafts; use `--status draft` to list them.
+
+To post an image: `superx media:upload ./chart.png` prints an `object_key`, then `superx scheduled:create --text "..." --media "<object_key>" --alt-text "..."` attaches it (comma-list up to 4 image keys, or exactly 1 GIF). For threads with media, pass the full parts array as JSON via `--parts-json`. Images are capped at 5MB (GIF 15MB) and 100 uploads per day.
+
+Article bodies are markdown in both directions: headings, lists, blockquotes, bold/italic/strikethrough, links, images by URL, and bare X post URLs as embeds. Constructs the X Articles format cannot express (code blocks, horizontal rules) degrade to plain text and are reported in a `warnings` array.
+
+## JSON output
+
+stdout is clean JSON for every command except `superx docs` (markdown), so output pipes straight into `jq`:
+
+```bash
+superx posts:list --sort likes --limit 5 | jq '.data[].text'
+```
+
+Human and status messages go to stderr. Exit code is `0` on success, `1` on error.
+
+## Agent skill
+
+The [superx-agent](https://github.com/superx-so/superx-agent) repo packages the CLI as a skill for Claude Code and compatible agent tools:
+
+```bash
+npx skills add superx-so/superx-agent
+```
+
+The skill teaches the agent the full workflow (check auth, read analytics and contacts, create drafts, verify) and ships with `PLAYBOOK.md`, a distilled SuperX growth strategy the agent follows when deciding what and when to post.

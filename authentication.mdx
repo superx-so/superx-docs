@@ -1,0 +1,46 @@
+---
+title: "Authentication"
+description: "API keys, scopes and how to keep them safe."
+---
+
+Every request to the SuperX API (except `GET /v1/docs`) is authenticated with an API key in the `Authorization` header:
+
+```
+Authorization: Bearer sxk_...
+```
+
+There is no other authentication method on this surface: no session tokens, no OAuth, no cookies.
+
+## Creating keys
+
+Create and manage keys in the SuperX app under **Account > Developers**. You can hold up to 10 active keys. Each key has a name, a creation date and a last-used date so you can tell them apart and retire stale ones.
+
+Keys are stored hashed on our side, so the full key is shown **exactly once**, right after you create it. Copy it then. If you lose a key, rotate it: the Developers tab creates a replacement with the same name and scopes and revokes the old one.
+
+## Scopes
+
+Keys carry coarse scopes:
+
+- `read` plus `write` (the default): full API access.
+- `read` only (the "Read-only key" option): `GET` requests work; any `POST` or `DELETE` returns `403 insufficient_scope`.
+
+Note the exact semantics: the scope check applies to **non-GET methods only**. A key with just the `write` scope can still perform `GET` requests; write access implies read access on this surface.
+
+## Keep keys server-side
+
+API keys are server-side secrets:
+
+- Never ship a key in browser JavaScript, a mobile app binary, or a public repo.
+- Store keys in environment variables or a secret manager.
+- Use one key per integration so you can revoke one without breaking the others.
+- Rotate keys periodically. Revocation takes effect within 60 seconds.
+
+## Subscription requirement
+
+API access follows your SuperX subscription (active, trialing, or team-billed all work). When a subscription lapses, requests return `403` until you resubscribe. Keys are not deleted on lapse; they resume working when the subscription is active again. Note that this specific `403` uses a legacy body shape, documented in [Errors](/errors).
+
+## Failed authentication
+
+- Missing or malformed header: `401 unauthorized`.
+- Unknown or revoked key: `401 invalid_api_key`.
+- Repeated failed attempts are rate limited per IP address (20 per minute); beyond that you get `429` with a `Retry-After` header.

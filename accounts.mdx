@@ -1,0 +1,54 @@
+---
+title: "Accounts"
+description: "Main and linked accounts, the account_id selector, and degraded responses."
+---
+
+A SuperX user has one **main account** (the X account they signed up with) and may have **linked accounts** they also manage. API keys belong to the user, and can read data for any of their accounts.
+
+## Listing your accounts
+
+```bash
+curl https://api.superx.so/v1/accounts \
+  -H "Authorization: Bearer sxk_..."
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "1178367350552305665",
+      "username": "mainhandle",
+      "name": "Main Account",
+      "avatar_url": "https://pbs.twimg.com/profile_images/example.jpg",
+      "is_main": true
+    },
+    {
+      "id": "1299139023923867648",
+      "username": "brandhandle",
+      "name": "Brand Account",
+      "avatar_url": "https://pbs.twimg.com/profile_images/example2.jpg",
+      "is_main": false
+    }
+  ],
+  "pagination": { "page": 1, "limit": 2, "has_more": false }
+}
+```
+
+## Selecting an account
+
+Endpoints that operate on one account accept an `account_id` parameter (query parameter on GET and DELETE, body field on POST). The value is the account `id` from `/v1/accounts`.
+
+- Omitted: your **main account** is used.
+- An `id` from your account list: that account is used.
+- Anything else: `404 account_not_found`.
+
+## Writes are main-account-only
+
+`POST /v1/scheduled-posts` and `DELETE /v1/scheduled-posts/{id}` currently work only for your main account. Passing a linked account's `account_id` to a write endpoint returns `403 writes_main_account_only`. Reads work for all accounts.
+
+## The degraded flag
+
+Account links are verified against the SuperX app on each request (with a short cache). If that verification is temporarily unavailable, the API fails closed rather than guessing:
+
+- `GET /v1/accounts` returns only your main account and adds a top-level `"degraded": true` field. Retry shortly for the full list. When the flag is absent, the list is complete.
+- Requests for a linked `account_id` return `503 accounts_unavailable` until verification recovers. Your main account keeps working throughout.

@@ -1,0 +1,3640 @@
+openapi: 3.1.0
+info:
+  title: SuperX API
+  version: "1.0.0"
+  description: |
+    The SuperX public API: your Twitter/X content, analytics, audience and
+    scheduling data over REST.
+
+    All endpoints require an API key (`Authorization: Bearer sxk_...`) except
+    `GET /v1/docs`. Keys are created in the SuperX app under Account > Developers
+    and are server-side secrets.
+
+    Timestamps are UTC ISO-8601 in both directions; inputs must carry an explicit
+    `Z` or numeric offset. Every authenticated response carries
+    `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers.
+  contact:
+    name: SuperX
+    url: https://superx.so
+servers:
+  - url: https://api.superx.so
+security:
+  - apiKey: []
+tags:
+  - name: Identity
+  - name: Content
+  - name: Analytics
+  - name: Inspiration
+  - name: Audience
+  - name: Contact Lists
+  - name: Signals
+  - name: Media
+  - name: Scheduling
+  - name: Tags
+  - name: Articles
+  - name: Meta
+
+paths:
+  /v1/me:
+    get:
+      tags: [Identity]
+      operationId: getMe
+      summary: Get the key owner
+      description: Returns the key owner, their plan, and the calling key's name and scopes.
+      responses:
+        "200":
+          description: The authenticated identity.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Me"
+              example:
+                data:
+                  owner:
+                    id: "1178367350552305665"
+                    name: "Jordan Rivers"
+                    email: "jordan@example.com"
+                  plan:
+                    tier: 2
+                    label: "Pro"
+                    is_trial: false
+                  key:
+                    id: 3
+                    name: "My script"
+                    key_prefix: "sxk_Ab3dEf9h"
+                    scopes: ["read", "write"]
+                    created_at: "2026-07-01T09:15:00.000Z"
+                    last_used_at: "2026-07-06T08:41:03.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/accounts:
+    get:
+      tags: [Identity]
+      operationId: listAccounts
+      summary: List your accounts
+      description: |
+        The accounts this key may act on: your main account plus any linked
+        accounts. When linked accounts cannot be verified, the response degrades
+        to the main account only and carries a top-level `degraded: true` flag;
+        retry shortly for the full list.
+      responses:
+        "200":
+          description: Main and linked accounts.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Account" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+                  degraded:
+                    type: boolean
+                    description: Present and true only when linked accounts could not be verified and the list contains the main account only.
+              example:
+                data:
+                  - id: "1178367350552305665"
+                    username: "mainhandle"
+                    name: "Main Account"
+                    avatar_url: "https://pbs.twimg.com/profile_images/example.jpg"
+                    is_main: true
+                  - id: "1299139023923867648"
+                    username: "brandhandle"
+                    name: "Brand Account"
+                    avatar_url: "https://pbs.twimg.com/profile_images/example2.jpg"
+                    is_main: false
+                pagination: { page: 1, limit: 2, has_more: false }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/posts:
+    get:
+      tags: [Content]
+      operationId: listPosts
+      summary: List published posts
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: type
+          in: query
+          description: Which posts to include.
+          schema:
+            type: string
+            enum: [posts, replies, all]
+            default: posts
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [posted_at, likes, impressions]
+            default: posted_at
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of posts, newest first by default.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Post" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "1941123456789012345"
+                    text: "Consistency beats intensity. Post every day for 30 days and watch what happens."
+                    posted_at: "2026-07-05T14:02:11.000Z"
+                    url: "https://x.com/mainhandle/status/1941123456789012345"
+                    is_reply: false
+                    in_reply_to_id: null
+                    is_quote: false
+                    thread_id: "1941123456789012345"
+                    metrics:
+                      likes: 231
+                      replies: 18
+                      reposts: 40
+                      quotes: 3
+                      bookmarks: 55
+                      impressions: 48210
+                pagination: { page: 1, limit: 20, has_more: true }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/posts/analytics:
+    get:
+      tags: [Analytics]
+      operationId: getPostAnalytics
+      summary: Get analytics
+      description: |
+        Totals and a per-day series (posts, engagement, impressions, follower
+        samples) for the selected account. Default range is the last 30 days;
+        the maximum range is 366 days.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+      responses:
+        "200":
+          description: Totals, follower change and per-day series.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Analytics"
+              example:
+                data:
+                  range:
+                    since: "2026-06-06T00:00:00.000Z"
+                    until: "2026-07-06T00:00:00.000Z"
+                  totals:
+                    posts: 92
+                    likes: 4110
+                    replies: 380
+                    reposts: 512
+                    quotes: 44
+                    bookmarks: 903
+                    impressions: 812400
+                  followers:
+                    start: 12180
+                    end: 12544
+                    change: 364
+                  series:
+                    - date: "2026-07-04"
+                      posts: 3
+                      likes: 140
+                      replies: 12
+                      reposts: 17
+                      quotes: 1
+                      bookmarks: 31
+                      impressions: 27400
+                      followers: 12520
+                    - date: "2026-07-05"
+                      posts: 4
+                      likes: 231
+                      replies: 18
+                      reposts: 40
+                      quotes: 3
+                      bookmarks: 55
+                      impressions: 48210
+                      followers: 12544
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/replies:
+    get:
+      tags: [Content]
+      operationId: listReplies
+      summary: List replies you sent
+      description: Replies the selected account has posted, newest first.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of replies.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Post" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "1941200000000000001"
+                    text: "Agreed. The first 100 posts are practice."
+                    posted_at: "2026-07-05T16:20:00.000Z"
+                    url: "https://x.com/mainhandle/status/1941200000000000001"
+                    is_reply: true
+                    in_reply_to_id: "1941199999999999999"
+                    is_quote: false
+                    thread_id: "1941199999999999999"
+                    metrics:
+                      likes: 12
+                      replies: 1
+                      reposts: 0
+                      quotes: 0
+                      bookmarks: 2
+                      impressions: 1840
+                pagination: { page: 1, limit: 20, has_more: false }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/replies/received:
+    get:
+      tags: [Audience]
+      operationId: listReceivedReplies
+      summary: List replies you received
+      description: Every stored reply the selected account has received across all of its posts, with the replier's profile and the replied-to post when available.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recent, most_liked]
+            default: recent
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of received replies.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReceivedReply" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "1941300000000000002"
+                    text: "This thread changed how I plan my week."
+                    posted_at: "2026-07-03T10:12:45.000Z"
+                    metrics: { likes: 9 }
+                    author:
+                      id: "944883311"
+                      username: "replierhandle"
+                      name: "Replier Name"
+                      avatar_url: "https://pbs.twimg.com/profile_images/..."
+                    in_reply_to:
+                      id: "1941299999999999998"
+                      text: "How I plan a content week in 20 minutes:"
+                      posted_at: "2026-07-03T09:00:00.000Z"
+                pagination: { page: 1, limit: 20, has_more: false, total: 14 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/inspiration:
+    get:
+      tags: [Inspiration]
+      operationId: searchInspiration
+      summary: Search the inspiration library
+      description: |
+        Search a library of 50M+ real high-performing posts by topic. Use the
+        results for structures, hooks and angles to remix, never to copy.
+
+        The library is user-level, so there is no `account_id` parameter.
+        Results are intentionally varied: the same query returns a different
+        mix on each call. Pagination is heuristic; `has_more` means a full
+        page came back with library pages left (pages run 1 to 7).
+
+        Each result carries an `outlier_score`: the post's engagement rate vs
+        the expected rate for its author's follower tier, x10 (10 = expected,
+        higher = overperformed). Null when the author's follower count is
+        unknown.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Topic or theme to search for (1-200 characters).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevant, recent, likes, reposts, impressions, outlier]
+            default: relevant
+        - name: min_likes
+          in: query
+          description: Only posts with at least this many likes.
+          schema: { type: integer, minimum: 0 }
+        - name: min_reposts
+          in: query
+          description: Only posts with at least this many reposts.
+          schema: { type: integer, minimum: 0 }
+        - name: min_replies
+          in: query
+          description: Only posts with at least this many replies.
+          schema: { type: integer, minimum: 0 }
+        - name: min_bookmarks
+          in: query
+          description: Only posts with at least this many bookmarks.
+          schema: { type: integer, minimum: 0 }
+        - name: min_impressions
+          in: query
+          description: Only posts with at least this many impressions.
+          schema: { type: integer, minimum: 0 }
+        - name: min_length
+          in: query
+          description: Only posts with at least this many characters.
+          schema: { type: integer, minimum: 0 }
+        - name: min_followers
+          in: query
+          description: Only posts from authors with at least this many followers.
+          schema: { type: integer, minimum: 0 }
+        - name: max_followers
+          in: query
+          description: Only posts from authors with at most this many followers.
+          schema: { type: integer, minimum: 0 }
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - name: lang
+          in: query
+          description: Language code.
+          schema:
+            type: string
+            default: en
+        - name: exclude_topics
+          in: query
+          description: Comma-separated topics to exclude (keyword filter).
+          schema:
+            type: string
+            example: "crypto,politics"
+        - name: limit
+          in: query
+          description: Page size, 1 to 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: page
+          in: query
+          description: 1-based page number, 1 to 7.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 7
+            default: 1
+      responses:
+        "200":
+          description: A page of matching posts.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/InspirationPost" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "1938765432109876543"
+                    text: "I built my first product in 30 days with zero audience. Here is exactly what I would do differently:"
+                    posted_at: "2026-06-20T15:04:00.000Z"
+                    lang: "en"
+                    likes: 4211
+                    replies: 312
+                    reposts: 388
+                    bookmarks: 1904
+                    impressions: 512000
+                    outlier_score: 14.2
+                    author:
+                      handle: "buildersam"
+                      name: "Sam Fields"
+                      followers: 8421
+                      verified: true
+                pagination: { page: 1, limit: 20, has_more: true }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/contacts:
+    get:
+      tags: [Audience]
+      operationId: listContacts
+      summary: List engaged contacts
+      description: People who engaged with the selected account over the moving 90-day window, with reply and repost tallies.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [engagement, replies, reposts]
+            default: engagement
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of contacts.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Contact" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "44196397001234567"
+                    username: "activefan"
+                    name: "Sam Porter"
+                    avatar_url: "https://pbs.twimg.com/profile_images/example3.jpg"
+                    replies_90d: 14
+                    reposts_90d: 6
+                pagination: { page: 1, limit: 20, has_more: true, total: 181 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/contacts/{id}/replies:
+    get:
+      tags: [Audience]
+      operationId: listContactReplies
+      summary: List one contact's replies to you
+      description: The stored reply history from one contact to the selected account, with the replied-to post when available.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The contact's id from `GET /v1/contacts`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recent, most_liked]
+            default: recent
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of the contact's replies.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContactReply" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "1941300000000000002"
+                    text: "This thread changed how I plan my week."
+                    posted_at: "2026-07-03T10:12:45.000Z"
+                    metrics: { likes: 9 }
+                    in_reply_to:
+                      id: "1941299999999999998"
+                      text: "How I plan a content week in 20 minutes:"
+                      posted_at: "2026-07-03T09:00:00.000Z"
+                pagination: { page: 1, limit: 20, has_more: false, total: 14 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/contact-lists:
+    get:
+      tags: [Contact Lists]
+      operationId: listContactLists
+      summary: List contact lists
+      description: |
+        The selected account's contact lists: system lists first (Followers,
+        Following, Repliers, Reposters; `is_system: true` with a `kind`), then
+        lists you created, newest first. System lists are read-only and
+        index-only: their members are not readable through the API and
+        `member_count` is 0 for them.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The account's contact lists.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContactList" }
+              example:
+                data:
+                  - id: "sys_f1a2b3c4d5e6f7g8h9i0j"
+                    name: "Followers"
+                    is_system: true
+                    kind: "followers"
+                    member_count: 0
+                    created_at: "2026-05-01T09:00:00.000Z"
+                    updated_at: "2026-05-01T09:00:00.000Z"
+                  - id: "k1l2m3n4o5p6q7r8s9t0u"
+                    name: "Founder prospects"
+                    is_system: false
+                    kind: null
+                    member_count: 42
+                    created_at: "2026-06-20T14:30:00.000Z"
+                    updated_at: "2026-07-01T08:15:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/contact-lists/{id}/members:
+    get:
+      tags: [Contact Lists]
+      operationId: listContactListMembers
+      summary: List contact list members
+      description: |
+        Members of one contact list you created. Includes a 90-day
+        `engaged_count` (replies + reposts to the account) per member.
+        System lists return 400 `system_list_not_supported`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+        - name: q
+          in: query
+          description: Filter members by handle or name substring.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of list members.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContactListMember" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "m1a2b3c4d5e6f7g8h9i0j"
+                    x_user_id: "944883311"
+                    username: "founderhandle"
+                    name: "Founder Name"
+                    avatar_url: "https://pbs.twimg.com/profile_images/..."
+                    location: "Austin, TX"
+                    followers_count: 12800
+                    following_count: 640
+                    engaged_count: 7
+                    source: "manual"
+                    added_at: "2026-06-25T11:00:00.000Z"
+                pagination: { page: 1, limit: 20, has_more: true, total: 42 }
+        "400": { $ref: "#/components/responses/SystemListNotSupported" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/ListNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    post:
+      tags: [Contact Lists]
+      operationId: addContactListMember
+      summary: Add a contact list member
+      description: |
+        Add a person to a list you created, by `handle` (live profile lookup)
+        or by `x_user_id` (numeric X user id already known to SuperX).
+        Exactly one of the two. Naturally idempotent: adding someone already
+        in the list returns 200 with the existing member and
+        `duplicate: true`, and writes nothing. Main account only; needs the
+        write scope. No `Idempotency-Key` support (none is needed).
+
+        Counts against a separate live-contact-enrichment rate limit (varies
+        by plan), in addition to the normal write limits.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                handle:
+                  type: string
+                  description: X username, with or without the @.
+                x_user_id:
+                  type: string
+                  description: Numeric X user id.
+            examples:
+              byHandle:
+                value: { handle: "founderhandle" }
+              byId:
+                value: { x_user_id: "944883311" }
+      responses:
+        "201":
+          description: The member was added.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AddedContactListMember" }
+              example:
+                data:
+                  id: "m1a2b3c4d5e6f7g8h9i0j"
+                  x_user_id: "944883311"
+                  username: "founderhandle"
+                  name: "Founder Name"
+                  avatar_url: "https://pbs.twimg.com/profile_images/..."
+                  added_at: "2026-07-08T10:00:00.000Z"
+        "200":
+          description: Already a member; nothing changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AddedContactListMember" }
+                  duplicate:
+                    type: boolean
+              example:
+                data:
+                  id: "m1a2b3c4d5e6f7g8h9i0j"
+                  x_user_id: "944883311"
+                  username: "founderhandle"
+                  name: "Founder Name"
+                  avatar_url: "https://pbs.twimg.com/profile_images/..."
+                  added_at: "2026-06-25T11:00:00.000Z"
+                duplicate: true
+        "400": { $ref: "#/components/responses/SystemListReadOnly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ListOrUserNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/contact-lists/{id}/members/{memberId}:
+    delete:
+      tags: [Contact Lists]
+      operationId: removeContactListMember
+      summary: Remove a contact list member
+      description: |
+        Remove a member from a list you created. Returns 204 with no body.
+        Removing an already-removed member returns 404 `member_not_found`.
+        Main account only; needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          description: The member id from `GET /v1/contact-lists/{id}/members`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: The member was removed.
+        "400": { $ref: "#/components/responses/SystemListReadOnly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/MemberNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/signals/agents:
+    get:
+      tags: [Signals]
+      operationId: listSignalAgents
+      summary: List signal agents
+      description: |
+        The account's signal agents: the automated lead finders from the
+        SuperX app. Each agent watches one or more signals (profiles,
+        followers, keywords, or lists) and scores the people it finds
+        against its ideal customer profile. Agents can be created, paused,
+        resumed, and deleted through the API; name, ICP, precision, and
+        destination edits happen in the SuperX app. `destination_list_id`
+        joins to `GET /v1/contact-lists` for the target list's name. Not
+        paginated (agent counts are capped per account).
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The account's signal agents.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SignalAgent" }
+              example:
+                data:
+                  - id: 3
+                    name: "Founder prospects"
+                    status: active
+                    status_detail: null
+                    icp_description: "Early-stage SaaS founders posting about growth"
+                    precision_mode: high
+                    destination_list_id: "contact:V1StGXR8_Z5jdHi6B-myT"
+                    created_at: "2026-06-20T09:00:00.000Z"
+                    updated_at: "2026-07-01T18:30:00.000Z"
+                    deposited_count: 42
+                    last_checked: "2026-07-08T06:15:00.000Z"
+                    signals:
+                      - id: 7
+                        type: profile_watch
+                        handle: "naval"
+                        name: "Naval"
+                        avatar: "https://pbs.twimg.com/profile_images/..."
+                        query: null
+                        list_name: null
+                        status: active
+                        status_detail: null
+                        last_run_at: "2026-07-08T06:15:00.000Z"
+                        created_at: "2026-06-20T09:00:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+    post:
+      tags: [Signals]
+      operationId: createSignalAgent
+      summary: Create a signal agent
+      description: |
+        Create a signal agent: it watches X for the given keywords and scores
+        the people it finds against `icp_description`. Matching leads land in
+        Signals (and `GET /v1/signals/leads`) over the following minutes and
+        days; nothing is returned synchronously.
+
+        Omit `keywords` and 1-3 watches are suggested from the ICP (if
+        suggestion fails, nothing is created and you get 502
+        `upstream_error`). Omit `destination_list_id` and a contact list
+        named `Leads: <agent name>` is created for the leads, flagged
+        `destination_list_created: true` in the response.
+
+        Plan limits apply (403 `cap_reached`). Supports `Idempotency-Key`
+        (max 64 chars): retries with the same key and body replay the
+        original response with `Idempotency-Replayed: true`. Main account
+        only in v1 (optional `account_id` in the body must be the main
+        account).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, icp_description]
+              properties:
+                name:
+                  type: string
+                  maxLength: 80
+                  description: Agent name shown in SuperX.
+                icp_description:
+                  type: string
+                  maxLength: 500
+                  description: Who the ideal leads are; found people are scored against this.
+                precision_mode:
+                  type: string
+                  enum: [high, discovery]
+                  default: high
+                  description: high = fewer, stricter matches; discovery = broader net.
+                keywords:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items:
+                    type: string
+                    maxLength: 180
+                  description: Plain-language descriptions of what the target customer posts about. Omit to auto-suggest from the ICP. Keywords beyond your plan's per-agent signal limit are dropped; the response lists the signals actually created.
+                destination_list_id:
+                  type: string
+                  description: Contact list id (from `GET /v1/contact-lists`) that receives the leads. Omit to auto-create one.
+                account_id:
+                  type: string
+                  description: Optional; must resolve to your main account.
+            example:
+              name: "Build in public founders"
+              icp_description: "Indie founders building SaaS in public, sharing MRR and launch updates"
+              precision_mode: high
+              keywords: ["building in public", "just shipped my MVP"]
+      responses:
+        "201":
+          description: The created agent with its keyword signals, plus whether a destination list was auto-created.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+            Idempotency-Replayed:
+              description: Present and "true" when this response was replayed from a previous request with the same Idempotency-Key.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/SignalAgent"
+                      - type: object
+                        properties:
+                          destination_list_created:
+                            type: boolean
+                            description: true when destination_list_id was omitted and a list was created for the agent.
+              example:
+                data:
+                  id: 12
+                  name: "Build in public founders"
+                  status: active
+                  status_detail: null
+                  icp_description: "Indie founders building SaaS in public, sharing MRR and launch updates"
+                  precision_mode: high
+                  destination_list_id: "contact:V1StGXR8_Z5jdHi6B-myT"
+                  created_at: "2026-07-08T10:00:00.000Z"
+                  updated_at: "2026-07-08T10:00:00.000Z"
+                  deposited_count: 0
+                  last_checked: null
+                  signals:
+                    - id: 31
+                      type: keyword_watch
+                      handle: null
+                      name: null
+                      avatar: null
+                      query: "building in public"
+                      list_name: null
+                      status: active
+                      status_detail: null
+                      last_run_at: null
+                      created_at: "2026-07-08T10:00:00.000Z"
+                  destination_list_created: true
+        "400":
+          description: A parameter is missing, malformed, or out of range (`invalid_parameter`), or the create was rejected upstream (`invalid_request`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: invalid_parameter
+                  message: "icp_description is required (1-500 characters)"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), lapsed subscription (legacy string envelope), or the plan's agent limit is reached (`cap_reached`).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: cap_reached
+                  message: "You've reached your plan's signal agent limit (1 on the pro plan). Pause and delete an agent, or upgrade your plan."
+        "404": { $ref: "#/components/responses/ListNotFound" }
+        "409":
+          description: The Idempotency-Key was already used with a different request body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: idempotency_key_reuse
+                  message: "This Idempotency-Key was already used with a different request body."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/signals/agents/{id}:
+    patch:
+      tags: [Signals]
+      operationId: setSignalAgentStatus
+      summary: Pause or resume a signal agent
+      description: |
+        Status-only lifecycle: `active` or `paused`. Paused agents stop
+        finding leads; resuming picks up where the agent left off (a resume
+        is rejected with `invalid_request` when the agent's destination list
+        is gone; point it at a new list in the SuperX app first). Other
+        fields (name, ICP, precision, destination) are edited in the SuperX
+        app. Naturally idempotent, so there is no `Idempotency-Key` support.
+        Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The signal agent's numeric id (from `GET /v1/signals/agents`).
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [active, paused]
+            example:
+              status: paused
+      responses:
+        "200":
+          description: The updated agent.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SignalAgent" }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AgentNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+    delete:
+      tags: [Signals]
+      operationId: deleteSignalAgent
+      summary: Delete a signal agent
+      description: |
+        Delete an agent. The leads it already saved and its destination
+        contact list stay untouched. Deleting the same id again returns 404
+        `agent_not_found`. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The signal agent's numeric id (from `GET /v1/signals/agents`).
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The agent was deleted.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      deleted:
+                        type: boolean
+              example:
+                data:
+                  id: 12
+                  deleted: true
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AgentNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/signals/leads:
+    get:
+      tags: [Signals]
+      operationId: listSignalLeads
+      summary: List signal leads
+      description: |
+        The leads the account's signal agents have found, newest first:
+        people who matched an agent's ideal customer profile, with their
+        profile, the match score and rationale, whether the lead has been
+        saved to the agent's contact list yet (`deposited`/`deposited_at`),
+        and provenance describing how the lead was discovered. Leads under
+        paused or errored agents remain listed (the agent's status is on
+        every row).
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: agent_id
+          in: query
+          description: Narrow to one agent by its numeric id (from `GET /v1/signals/agents`). An unknown or foreign id returns 404 `agent_not_found`.
+          schema:
+            type: integer
+        - name: deposited
+          in: query
+          description: true returns only leads already saved to the agent's contact list; false returns only new ones. Omit for both.
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Until"
+        - name: limit
+          in: query
+          description: Items per page, up to 100. Default 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of leads, discovered_at descending.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SignalLead" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: 918
+                    agent: { id: 3, name: "Founder prospects", status: active }
+                    user:
+                      x_user_id: "944883311"
+                      username: "founderhandle"
+                      name: "Founder Name"
+                      avatar_url: "https://pbs.twimg.com/profile_images/..."
+                      followers_count: 4210
+                      following_count: 388
+                      location: "Austin, TX"
+                    icp_score: 3
+                    icp_rationale: "Bootstrapped SaaS founder actively posting about growth experiments."
+                    deposited: true
+                    deposited_at: "2026-07-07T12:00:00.000Z"
+                    discovered_at: "2026-07-07T09:41:00.000Z"
+                    provenance:
+                      type: profile_watch
+                      action: reply
+                      source_ref: "1941300000000000002"
+                      tweet_id: "1941300000000000002"
+                      tweet_text: "We doubled activation by rewriting onboarding emails."
+                      target_handle: "naval"
+                pagination: { page: 1, limit: 50, has_more: false, total: 1 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AgentNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/media:
+    post:
+      tags: [Media]
+      operationId: createMediaUpload
+      summary: Presign an image upload
+      description: |
+        Registers an image upload and returns a presigned `upload_url`. PUT
+        the raw file bytes to `upload_url` within 20 minutes, with the
+        `Content-Type` header set to the same `file_type` you declared here.
+        Then reference the returned `object_key` in `parts[].media` on the
+        scheduled-posts create/update endpoints.
+
+        Images only: `image/jpeg`, `image/png`, `image/webp` (5 MB max each)
+        and `image/gif` (15 MB max). The attach step re-checks the real bytes
+        (size and magic-byte type), so a mismatched upload fails at attach
+        time. Uploads never attached to a post are deleted after 24 hours.
+
+        Needs the write scope. Quota: 100 uploads per key per day, on top of
+        the normal write rate limits. No `Idempotency-Key` handling: a
+        duplicate presign is just an unused upload that expires.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, file_type, size]
+              properties:
+                filename:
+                  type: string
+                  description: Original filename; sanitized into the object key.
+                file_type:
+                  type: string
+                  enum: [image/jpeg, image/png, image/webp, image/gif]
+                size:
+                  type: integer
+                  description: File size in bytes. 5 MB max (15 MB for GIF).
+            example:
+              filename: "chart.png"
+              file_type: "image/png"
+              size: 48213
+      responses:
+        "201":
+          description: The registered upload and its presigned PUT URL.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      object_key:
+                        type: string
+                        description: Pass this in `parts[].media` when creating or editing a post.
+                      url:
+                        type: string
+                        description: The public URL the file will have once uploaded.
+                      upload_url:
+                        type: string
+                        description: Presigned PUT URL. Upload the raw bytes here with `Content-Type` equal to `file_type`.
+                      expires_at:
+                        type: string
+                        format: date-time
+                        description: When the upload_url stops working (20 minutes).
+              example:
+                data:
+                  object_key: "u123/api_1751980800000_9f3a1c2b_chart.png"
+                  url: "https://media.superx.so/u123/api_1751980800000_9f3a1c2b_chart.png"
+                  upload_url: "https://<bucket-host>/u123/api_1751980800000_9f3a1c2b_chart.png?X-Amz-..."
+                  expires_at: "2026-07-08T15:20:00.000Z"
+        "400":
+          description: Invalid parameter, unsupported type (`unsupported_media_type`; videos land here), or over the size cap (`media_too_large`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: unsupported_media_type
+                  message: "file_type must be one of: image/jpeg, image/png, image/webp, image/gif. Videos are not supported yet."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`) or a lapsed subscription (legacy string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "429":
+          description: Write rate limit (`rate_limited`) or the daily media quota (`media_quota_exceeded`, 100/day). `Retry-After` indicates the wait.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: media_quota_exceeded
+                  message: "Daily media upload limit reached (100/day). Retry after the indicated delay."
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503":
+          description: Media storage is not configured (`media_not_configured`) or temporarily unavailable (`upstream_unavailable`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: media_not_configured
+                  message: "Media storage is not configured on this server. Try again later."
+
+  /v1/scheduled-posts:
+    get:
+      tags: [Scheduling]
+      operationId: listScheduledPosts
+      summary: List drafts and scheduled posts
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: status
+          in: query
+          description: Comma list of statuses to include. Default is all four. `draft` also covers legacy board drafts stored under internal statuses; they come back as `"draft"`.
+          schema:
+            type: string
+            example: "scheduled,draft"
+        - name: tags
+          in: query
+          description: Comma list of tag ids (from `GET /v1/tags`). Returns posts carrying ANY of the listed tags.
+          schema:
+            type: string
+            example: "V1StGXR8_Z5jdHi6B-myT"
+        - name: from
+          in: query
+          description: Include posts scheduled at or after this UTC ISO-8601 time (explicit Z or offset required).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Include posts scheduled at or before this UTC ISO-8601 time (explicit Z or offset required).
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of scheduled posts and drafts.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ScheduledPost" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "V1StGXR8_Z5jdHi6B-myT"
+                    status: "scheduled"
+                    scheduled_for: "2026-07-08T15:00:00.000Z"
+                    parts:
+                      - text: "Shipping day. Here is everything new in this release:"
+                      - text: "1. A public API. Docs at docs.superx.so"
+                    title: null
+                    scratchpad: null
+                    tags: []
+                    created_at: "2026-07-06T09:30:00.000Z"
+                  - id: "Fq2xWnA0kLpR7sVtYu3zc"
+                    status: "draft"
+                    scheduled_for: null
+                    parts:
+                      - text: "Rough idea: why most scheduling tools get threads wrong."
+                    title: "Threads take"
+                    scratchpad: null
+                    tags:
+                      - { id: "aB3xWnA0kLpR7sVtYu3zc", name: "Launch week", color: "amber" }
+                    created_at: "2026-07-05T20:11:00.000Z"
+                pagination: { page: 1, limit: 20, has_more: false, total: 2 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    post:
+      tags: [Scheduling]
+      operationId: createScheduledPost
+      summary: Create a draft or scheduled post
+      description: |
+        Creates a post: a draft when `scheduled_for` is omitted, a scheduled
+        post otherwise. Main account only in v1. Supports the
+        `Idempotency-Key` header for safe retries (see the Idempotency guide).
+        Successful creation returns `201`.
+
+        Images attach per part: `parts[].media` is an array of
+        `{ object_key, alt_text? }` items, with `object_key` from
+        `POST /v1/media` (uploaded bytes required first). Up to 4 images or
+        exactly 1 GIF per part; `alt_text` is capped at 1,000 characters.
+        Video is not supported yet.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: >-
+            Unique key (max 64 characters) for safe retries. Replays carry the
+            "Idempotency-Replayed" response header set to "true". Keys are
+            retained for 24 hours.
+          schema:
+            type: string
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: The post text (single post). Provide either `text` or `parts`.
+                parts:
+                  type: array
+                  description: Thread parts, 1 to 25 items. Total text across parts is limited to 25,000 characters.
+                  items:
+                    type: object
+                    required: [text]
+                    properties:
+                      text:
+                        type: string
+                      media:
+                        type: array
+                        maxItems: 4
+                        description: Images for this part (up to 4, or exactly 1 GIF). `object_key` from `POST /v1/media`.
+                        items:
+                          type: object
+                          required: [object_key]
+                          properties:
+                            object_key:
+                              type: string
+                            alt_text:
+                              type: string
+                              maxLength: 1000
+                              description: Accessibility description delivered to X with the image.
+                scheduled_for:
+                  type: string
+                  format: date-time
+                  description: UTC ISO-8601 with explicit Z or offset. At least 60 seconds in the future, at most 18 months out. Omit to create a draft.
+                title:
+                  type: string
+                  maxLength: 300
+                  description: Draft title shown in the SuperX app. Organizational only, never posted.
+                scratchpad:
+                  type: string
+                  maxLength: 30000
+                  description: Private working notes attached to the post. Never posted.
+                tags:
+                  type: array
+                  maxItems: 20
+                  description: Tag ids to assign (from `GET /v1/tags`). Unknown ids fail the whole request with `400 unknown_tag` before anything is created.
+                  items:
+                    type: string
+                account_id:
+                  type: string
+                  description: Must be your main account (or omitted). Linked accounts return `403 writes_main_account_only`.
+            examples:
+              single:
+                summary: One scheduled post
+                value:
+                  text: "Shipping day."
+                  scheduled_for: "2026-07-08T15:00:00Z"
+              thread:
+                summary: A thread draft
+                value:
+                  parts:
+                    - text: "Why most scheduling tools get threads wrong:"
+                    - text: "They treat a thread as one blob of text instead of parts."
+              organized:
+                summary: A draft with title and tags
+                value:
+                  text: "Rough cut of the launch teaser."
+                  title: "Launch teaser v1"
+                  tags: ["V1StGXR8_Z5jdHi6B-myT"]
+              with_image:
+                summary: A scheduled post with an image
+                value:
+                  parts:
+                    - text: "Chart of the week."
+                      media:
+                        - object_key: "u123/api_1751980800000_9f3a1c2b_chart.png"
+                          alt_text: "Line chart of weekly revenue trending up"
+                  scheduled_for: "2026-07-08T15:00:00Z"
+      responses:
+        "201":
+          description: >-
+            The created post. Replayed idempotent requests also return this
+            body with the "Idempotency-Replayed" header set to "true".
+          headers:
+            Idempotency-Replayed:
+              description: Present and "true" when this response was replayed from a previous request with the same Idempotency-Key.
+              schema:
+                type: string
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ScheduledPost"
+              example:
+                data:
+                  id: "V1StGXR8_Z5jdHi6B-myT"
+                  status: "scheduled"
+                  scheduled_for: "2026-07-08T15:00:00.000Z"
+                  parts:
+                    - text: "Shipping day."
+                  title: null
+                  scratchpad: null
+                  tags: []
+                  created_at: "2026-07-06T10:00:00.000Z"
+        "400":
+          description: Invalid parameter, invalid request, unknown tag id (`unknown_tag`), or a media problem: unknown or foreign `object_key` (`invalid_media`), bytes never uploaded (`media_not_uploaded`), not a supported image (`unsupported_media_type`), or over the size cap (`media_too_large`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: invalid_media
+                  message: "Unknown object_key: u123/api_..._chart.png. Upload media first via POST /v1/media."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: |
+            Read-only key (`insufficient_scope`), linked account
+            (`writes_main_account_only`), onboarding not finished
+            (`onboarding_required`), post quota used up
+            (`post_quota_exceeded`), or a lapsed subscription (legacy string
+            envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: writes_main_account_only
+                  message: "The API can only create posts for your main account for now."
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "409":
+          description: The Idempotency-Key was already used with a different request body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: idempotency_key_reuse
+                  message: "This Idempotency-Key was already used with a different request body."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/scheduled-posts/{id}:
+    patch:
+      tags: [Scheduling]
+      operationId: updateScheduledPost
+      summary: Edit a draft or scheduled post
+      description: |
+        Partial update: only the fields you send change; everything else on
+        the post (including fields the API does not expose) is preserved.
+        Main account only in v1.
+
+        Status transitions are explicit: sending `scheduled_for` alone never
+        schedules a draft. Set `status` to `"scheduled"` to promote (needs a
+        future time, provided or already stored: at least 60 seconds ahead,
+        at most 18 months) or `"draft"` to pull a post back out of the queue.
+        Both directions ride the normal post-quota deduct/refund.
+
+        `parts` is a FULL replace, media included: a part sent without
+        `media` drops any media it carried. Re-include the current
+        `object_key`s (visible on GET responses) to keep them, add new ones
+        from `POST /v1/media`, or omit `parts` entirely to edit only
+        title/scratchpad/time/status without touching text or media.
+        No `Idempotency-Key` handling: PATCH is naturally idempotent.
+        Concurrent edits are last-write-wins.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  description: Replacement text (single post). Provide either `text` or `parts`, not both.
+                parts:
+                  type: array
+                  description: Replacement parts (full replace, media included), 1 to 25 items, 25,000 characters total. A part without `media` drops the media it carried.
+                  items:
+                    type: object
+                    required: [text]
+                    properties:
+                      text:
+                        type: string
+                      media:
+                        type: array
+                        maxItems: 4
+                        description: Images for this part (up to 4, or exactly 1 GIF). Re-list existing `object_key`s to keep them; new ones come from `POST /v1/media`.
+                        items:
+                          type: object
+                          required: [object_key]
+                          properties:
+                            object_key:
+                              type: string
+                            alt_text:
+                              type: string
+                              maxLength: 1000
+                scheduled_for:
+                  type: string
+                  format: date-time
+                  description: New time, UTC ISO-8601 with explicit Z or offset. On its own it never promotes a draft.
+                status:
+                  type: string
+                  enum: [draft, scheduled]
+                  description: Explicit transition. `scheduled` requires a future time (via `scheduled_for` or already stored).
+                title:
+                  type: string
+                  maxLength: 300
+                  nullable: true
+                  description: New title; `null` clears it.
+                scratchpad:
+                  type: string
+                  maxLength: 30000
+                  nullable: true
+                  description: New notes; `null` clears them.
+                tags:
+                  type: array
+                  maxItems: 20
+                  description: Full replacement tag id set. `[]` clears all tags. Unknown ids fail with `400 unknown_tag`.
+                  items:
+                    type: string
+                account_id:
+                  type: string
+                  description: Must be your main account (or omitted).
+            examples:
+              retitle:
+                summary: Change only the title
+                value:
+                  title: "Launch teaser v2"
+              promote:
+                summary: Promote a draft to the queue
+                value:
+                  scheduled_for: "2026-08-01T15:00:00Z"
+                  status: "scheduled"
+              retag:
+                summary: Replace the tag set
+                value:
+                  tags: ["V1StGXR8_Z5jdHi6B-myT"]
+      responses:
+        "200":
+          description: The full updated post.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ScheduledPost"
+              example:
+                data:
+                  id: "Fq2xWnA0kLpR7sVtYu3zc"
+                  status: "draft"
+                  scheduled_for: null
+                  parts:
+                    - text: "Rough idea: why most scheduling tools get threads wrong."
+                  title: "Launch teaser v2"
+                  scratchpad: null
+                  tags: []
+                  created_at: "2026-07-05T20:11:00.000Z"
+        "400":
+          description: Invalid parameter, unknown tag id (`unknown_tag`), a missing future time for `status:"scheduled"`, or a media problem: unknown or foreign `object_key` (`invalid_media`), bytes never uploaded (`media_not_uploaded`), not a supported image (`unsupported_media_type`), or over the size cap (`media_too_large`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: invalid_media
+                  message: "Unknown object_key: u123/api_..._chart.png. Upload media first via POST /v1/media."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "404":
+          description: No scheduled post with that id belongs to this account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: not_found
+                  message: "No scheduled post with that id belongs to this account."
+        "409":
+          description: The post is not editable (already sent or errored).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: post_not_editable
+                  message: "Only drafts and scheduled posts can be edited."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    delete:
+      tags: [Scheduling]
+      operationId: deleteScheduledPost
+      summary: Delete a draft or scheduled post
+      description: Deletes the post and refunds any quota it held. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: Deleted.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      deleted:
+                        type: boolean
+              example:
+                data:
+                  id: "V1StGXR8_Z5jdHi6B-myT"
+                  deleted: true
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "404":
+          description: No scheduled post with that id belongs to this account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: not_found
+                  message: "No scheduled post with that id belongs to this account."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/tags:
+    get:
+      tags: [Tags]
+      operationId: listTags
+      summary: List tags
+      description: Tags organize drafts and scheduled posts. They are scoped to the workspace owner and shared across linked accounts. Sorted by name A-Z.
+      responses:
+        "200":
+          description: All tags.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Tag" }
+              example:
+                data:
+                  - id: "aB3xWnA0kLpR7sVtYu3zc"
+                    name: "Launch week"
+                    color: "amber"
+                    created_at: "2026-07-01T09:00:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    post:
+      tags: [Tags]
+      operationId: createTag
+      summary: Create a tag
+      description: Names are unique per workspace. `color` is a palette name the SuperX app renders (rose, amber, lime, emerald, teal, cyan, blue, indigo, violet, fuchsia, slate, stone); it defaults to `blue`. Main account only in v1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+                color:
+                  type: string
+                  minLength: 1
+                  maxLength: 32
+                  default: blue
+            example:
+              name: "Launch week"
+              color: "amber"
+      responses:
+        "201":
+          description: The created tag.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Tag" }
+              example:
+                data:
+                  id: "aB3xWnA0kLpR7sVtYu3zc"
+                  name: "Launch week"
+                  color: "amber"
+                  created_at: "2026-07-07T09:00:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "409":
+          description: A tag with that name already exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: duplicate_name
+                  message: "A tag with that name already exists."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/tags/{id}:
+    patch:
+      tags: [Tags]
+      operationId: updateTag
+      summary: Rename or recolor a tag
+      description: Provide `name` and/or `color`. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+                color:
+                  type: string
+                  minLength: 1
+                  maxLength: 32
+            example:
+              name: "Launch"
+              color: "violet"
+      responses:
+        "200":
+          description: The updated tag.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Tag" }
+              example:
+                data:
+                  id: "aB3xWnA0kLpR7sVtYu3zc"
+                  name: "Launch"
+                  color: "violet"
+                  created_at: "2026-07-01T09:00:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "404":
+          description: No tag with that id belongs to this account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: not_found
+                  message: "No tag with that id belongs to this account."
+        "409":
+          description: A tag with that name already exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: duplicate_name
+                  message: "A tag with that name already exists."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    delete:
+      tags: [Tags]
+      operationId: deleteTag
+      summary: Delete a tag
+      description: Deletes the tag and removes it from every draft and scheduled post that carries it (the posts themselves are untouched). Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted. No body.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "404":
+          description: No tag with that id belongs to this account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: not_found
+                  message: "No tag with that id belongs to this account."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/articles:
+    get:
+      tags: [Articles]
+      operationId: listArticles
+      summary: List articles
+      description: Long-form X Articles for the selected account, newest-updated first. Article bodies do NOT appear in lists; fetch one article for its markdown body.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: status
+          in: query
+          description: "Comma list of statuses to include: draft, scheduled, publishing, published, failed. Omit for all."
+          schema:
+            type: string
+            example: "draft,scheduled"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: Articles plus pagination.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Article" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "k9GdPzR4wq2xVbY0nT1sc"
+                    title: "How we grew to 10k followers"
+                    status: "draft"
+                    cover: { url: "https://media.superx.so/covers/example.jpg" }
+                    scheduled_for: null
+                    published_at: null
+                    x_post_id: null
+                    created_at: null
+                    updated_at: "2026-07-07T10:00:00.000Z"
+                pagination: { page: 1, limit: 20, has_more: false, total: 1 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    post:
+      tags: [Articles]
+      operationId: createArticle
+      summary: Create an article draft
+      description: |
+        Creates a draft. `content_markdown` (max 400KB) converts to the article's stored rich-text form: headings (h1-h3), bullet and numbered lists (one nesting level), blockquotes, bold/italic/strikethrough, links, images by http(s) URL, and bare X post URLs alone on a line as embeds. Constructs the format cannot express (code blocks, horizontal rules) degrade to plain text and are reported in a `warnings` array. Non-http(s) image or link URLs are rejected with 400.
+
+        Supports `Idempotency-Key` (max 64 chars): retries with the same key and body replay the original response with `Idempotency-Replayed: true`. Main account only in v1.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                content_markdown:
+                  type: string
+                  description: Article body as markdown. Omit for an empty draft.
+                account_id:
+                  type: string
+                  description: Must be the main account (writes are main-account-only).
+            example:
+              title: "How we grew to 10k followers"
+              content_markdown: "# The system\n\nConsistency beats intensity.\n\n- Post daily\n- Reply to your top contacts"
+      responses:
+        "201":
+          description: The created article (body echoed as markdown).
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Article" }
+                  warnings:
+                    type: array
+                    items: { type: string }
+                    description: Markdown degradations applied during conversion (absent when none).
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "409":
+          description: Idempotency-Key reused with a different request body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: idempotency_key_reuse
+                  message: "This Idempotency-Key was already used with a different request body."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/articles/{id}:
+    get:
+      tags: [Articles]
+      operationId: getArticle
+      summary: Get an article
+      description: One article including `content_markdown`. Articles edited in the SuperX editor can carry rich-text constructs markdown cannot express exactly; those degrade to their text content in the markdown view.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The article with its markdown body.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Article" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    patch:
+      tags: [Articles]
+      operationId: updateArticle
+      summary: Edit an article
+      description: Partial edit. Only provided fields change. `content_markdown` replaces the WHOLE body. `cover_url` attaches an http(s) image as the cover; `null` removes the cover. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 300
+                content_markdown:
+                  type: string
+                  description: Full replacement body as markdown (max 400KB).
+                cover_url:
+                  type: string
+                  nullable: true
+                  description: http(s) image URL to set as the cover, or null to remove it.
+                account_id:
+                  type: string
+            example:
+              title: "How we grew to 10k followers (updated)"
+      responses:
+        "200":
+          description: The updated article (body echoed as markdown).
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Article" }
+                  warnings:
+                    type: array
+                    items: { type: string }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    delete:
+      tags: [Articles]
+      operationId: deleteArticle
+      summary: Delete an article
+      description: Deletes the article. Scheduled articles refund the quota their scheduling deducted. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Deleted. No body.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/articles/{id}/publish:
+    post:
+      tags: [Articles]
+      operationId: publishArticle
+      summary: Publish an article to X now
+      description: |
+        Publishes the article immediately from its STORED title, body, and cover. Irreversible: the article goes live publicly and post quota is spent. Requires X Premium on the connected account; without it the publish fails with 403 `x_premium_required`. X also enforces its own article limits (10 drafts and 5 publishes per day), which surface as 502 `x_publish_failed` with the failure detail.
+
+        Supports `Idempotency-Key`, strongly recommended. A 504 `upstream_timeout` is AMBIGUOUS: the publish may still have completed; GET the article and check its status before retrying.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: { type: string }
+      responses:
+        "200":
+          description: Published.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      status: { type: string, enum: [published] }
+                      post_id: { type: string, nullable: true }
+                      url: { type: string, nullable: true }
+                      published_at: { type: string, format: date-time, nullable: true }
+              example:
+                data:
+                  id: "k9GdPzR4wq2xVbY0nT1sc"
+                  status: "published"
+                  post_id: "1790000000000000000"
+                  url: "https://x.com/i/status/1790000000000000000"
+                  published_at: "2026-07-07T12:00:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402":
+          description: Post quota exceeded for the current billing period.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: post_quota_exceeded
+                  message: "Post quota exceeded for the current billing period."
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), missing X Premium (`x_premium_required`), a connected account needing re-authorization (`reauth_required`), or a lapsed subscription.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: x_premium_required
+                  message: "Publishing articles requires X Premium on the connected account."
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "409":
+          description: The article's status does not allow publishing (already published, or a publish is in flight).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: article_not_editable
+                  message: "This article is already published"
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502":
+          description: The publish failed (`x_publish_failed`, article returned to draft, quota refunded) or could not be confirmed (`x_publish_ambiguous`, check the article's status).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: x_publish_failed
+                  message: "The publish failed. The article was returned to draft."
+        "504":
+          description: AMBIGUOUS timeout. The publish may still have completed. GET the article to check its status before retrying.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: upstream_timeout
+                  message: "The publish did not respond in time and may still have completed. GET the article to check its status before retrying."
+
+  /v1/articles/{id}/schedule:
+    post:
+      tags: [Articles]
+      operationId: scheduleArticle
+      summary: Schedule or reschedule an article
+      description: |
+        Schedules the article for `scheduled_for` (UTC ISO-8601 with an explicit Z or offset, more than 2 minutes in the future; no maximum horizon). Scheduling a draft deducts post quota, refunded on unschedule or delete. Rescheduling an already scheduled article is a free time-only move. Supports `Idempotency-Key`. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduled_for]
+              properties:
+                scheduled_for:
+                  type: string
+                  format: date-time
+                account_id: { type: string }
+            example:
+              scheduled_for: "2026-08-01T15:00:00Z"
+      responses:
+        "200":
+          description: The scheduled article.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Article" }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402":
+          description: Post quota exceeded for the current billing period.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: post_quota_exceeded
+                  message: "Post quota exceeded for the current billing period."
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "409":
+          description: The article's status does not allow scheduling (already published or publishing), or the Idempotency-Key was reused with a different body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: article_not_editable
+                  message: "This article is already published"
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/articles/{id}/unschedule:
+    post:
+      tags: [Articles]
+      operationId: unscheduleArticle
+      summary: Unschedule an article
+      description: Pulls a scheduled article back to draft and refunds exactly the quota its scheduling deducted. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: { type: string }
+      responses:
+        "200":
+          description: The article, back in draft.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Article" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "409":
+          description: The article is not scheduled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: article_not_scheduled
+                  message: "Only scheduled articles can be unscheduled."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/articles/{id}/cover:
+    post:
+      tags: [Articles]
+      operationId: generateArticleCover
+      summary: Generate an AI cover image
+      description: |
+        Generates a 2.5:1 cover image from the article's TITLE (a title is required) and, by default, attaches it as the article's cover. `attach: false` generates without touching the current cover; attach later via PATCH `cover_url`. `style_text` (max 8000 chars) steers the artwork.
+
+        Slow (60-100 seconds) and paid: spends AI credits against daily and monthly caps, all enforced server-side. 429 responses carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month` counters. Supports `Idempotency-Key`, recommended. Main account only in v1.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                style_text:
+                  type: string
+                  maxLength: 8000
+                  description: Optional style description steering the artwork.
+                attach:
+                  type: boolean
+                  default: true
+                account_id: { type: string }
+            example:
+              style_text: "dark, minimal, geometric"
+      responses:
+        "200":
+          description: The generated cover.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      cover:
+                        type: object
+                        properties:
+                          url: { type: string }
+                      attached:
+                        type: boolean
+                        description: Whether the cover was attached to the article.
+                      remaining_day: { type: integer, nullable: true }
+                      remaining_month: { type: integer, nullable: true }
+              example:
+                data:
+                  cover: { url: "https://media.superx.so/covers/example.jpg" }
+                  attached: true
+                  remaining_day: 3
+                  remaining_month: 11
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), cover generation disabled (`feature_disabled`), or a lapsed subscription.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: insufficient_scope
+                  message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "409":
+          description: A cover is already being generated for this article (`cover_gen_in_progress`), or the Idempotency-Key was reused with a different body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: cover_gen_in_progress
+                  message: "A cover is already being generated for this article. Try again once it finishes."
+        "429":
+          description: Rate limited, generation caps reached (`cover_gen_cap_daily` / `cover_gen_cap_monthly` with counters), or AI credits exhausted (`ai_credits_exhausted`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: cover_gen_cap_daily
+                  message: "The daily cover generation cap has been reached."
+                  remaining_day: 0
+                  remaining_month: 7
+                  limit_day: 6
+                  limit_month: 13
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "504":
+          description: AMBIGUOUS timeout. The render may still have completed. GET the article to check its cover before retrying.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: upstream_timeout
+                  message: "Cover generation did not respond in time and may still have completed. GET the article to check its cover before retrying."
+
+  /v1/docs:
+    get:
+      tags: [Meta]
+      operationId: getDocs
+      summary: Machine-readable quickstart
+      description: A short markdown quickstart (auth header, base URL, endpoint list, rate limits). No authentication required.
+      security: []
+      responses:
+        "200":
+          description: The quickstart document.
+          content:
+            text/markdown:
+              schema:
+                type: string
+              example: |
+                # SuperX API v1 quickstart
+
+                Base URL: `https://api.superx.so/v1`
+                ...
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: A SuperX API key ("sxk_..."), created in the SuperX app under Account > Developers. Keys are server-side secrets.
+
+  headers:
+    X-RateLimit-Limit:
+      description: The limit of the rate window closest to exhaustion.
+      schema:
+        type: integer
+    X-RateLimit-Remaining:
+      description: Requests remaining in that window.
+      schema:
+        type: integer
+    X-RateLimit-Reset:
+      description: Unix timestamp (seconds) when that window resets.
+      schema:
+        type: integer
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        Unique key (max 64 characters) for safe retries. Replays carry the
+        "Idempotency-Replayed" response header set to "true". Keys are
+        retained for 24 hours.
+      schema:
+        type: string
+        maxLength: 64
+
+    AccountId:
+      name: account_id
+      in: query
+      required: false
+      description: Account to act on, from `GET /v1/accounts`. Defaults to your main account. An id outside your accounts returns `404 account_not_found`.
+      schema:
+        type: string
+    Since:
+      name: since
+      in: query
+      required: false
+      description: UTC ISO-8601 lower bound (explicit Z or offset required).
+      schema:
+        type: string
+        format: date-time
+    Until:
+      name: until
+      in: query
+      required: false
+      description: UTC ISO-8601 upper bound (explicit Z or offset required).
+      schema:
+        type: string
+        format: date-time
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size, 1 to 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Page:
+      name: page
+      in: query
+      required: false
+      description: 1-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+            retry_after:
+              type: integer
+              description: Seconds to wait before retrying (rate-limit errors only).
+
+    LegacyErrorEnvelope:
+      type: object
+      required: [error]
+      description: |
+        Legacy shape used ONLY by the shared subscription middleware: a plain
+        string `error` field. Seen on `403` when the subscription has lapsed
+        (string starts with "subscription_required:") and on `500` when
+        subscription verification fails (string starts with "internal_error:").
+      properties:
+        error:
+          type: string
+          example: "subscription_required: The SuperX API requires an active subscription"
+
+    Pagination:
+      type: object
+      required: [page, limit, has_more]
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+        total:
+          type: integer
+          description: Present only where cheap to compute.
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        is_main:
+          type: boolean
+
+    Me:
+      type: object
+      properties:
+        owner:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+              nullable: true
+            email:
+              type: string
+              nullable: true
+        plan:
+          type: object
+          nullable: true
+          properties:
+            tier:
+              type: integer
+            label:
+              type: string
+            is_trial:
+              type: boolean
+        key:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            key_prefix:
+              type: string
+            scopes:
+              type: array
+              items:
+                type: string
+                enum: [read, write]
+            created_at:
+              type: string
+              format: date-time
+              nullable: true
+            last_used_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    PostMetrics:
+      type: object
+      properties:
+        likes:
+          type: integer
+        replies:
+          type: integer
+        reposts:
+          type: integer
+        quotes:
+          type: integer
+        bookmarks:
+          type: integer
+        impressions:
+          type: integer
+
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+          nullable: true
+        url:
+          type: string
+        is_reply:
+          type: boolean
+        in_reply_to_id:
+          type: string
+          nullable: true
+        is_quote:
+          type: boolean
+        thread_id:
+          type: string
+          nullable: true
+        metrics:
+          $ref: "#/components/schemas/PostMetrics"
+
+    Analytics:
+      type: object
+      properties:
+        range:
+          type: object
+          properties:
+            since:
+              type: string
+              format: date-time
+            until:
+              type: string
+              format: date-time
+        totals:
+          $ref: "#/components/schemas/AnalyticsTotals"
+        followers:
+          type: object
+          properties:
+            start:
+              type: integer
+              nullable: true
+            end:
+              type: integer
+              nullable: true
+            change:
+              type: integer
+              nullable: true
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalyticsDay"
+
+    AnalyticsTotals:
+      type: object
+      properties:
+        posts:
+          type: integer
+        likes:
+          type: integer
+        replies:
+          type: integer
+        reposts:
+          type: integer
+        quotes:
+          type: integer
+        bookmarks:
+          type: integer
+        impressions:
+          type: integer
+
+    AnalyticsDay:
+      allOf:
+        - $ref: "#/components/schemas/AnalyticsTotals"
+        - type: object
+          properties:
+            date:
+              type: string
+              description: UTC day, YYYY-MM-DD.
+            followers:
+              type: integer
+              nullable: true
+              description: Follower sample for the day, when tracked.
+
+    InspirationPost:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+          nullable: true
+        lang:
+          type: string
+          nullable: true
+        likes:
+          type: integer
+        replies:
+          type: integer
+        reposts:
+          type: integer
+        bookmarks:
+          type: integer
+        impressions:
+          type: integer
+        outlier_score:
+          type: number
+          nullable: true
+          description: Engagement rate vs the expected rate for the author's follower tier, x10 (10 = expected, higher = overperformed). Null when the author's follower count is unknown.
+        author:
+          type: object
+          properties:
+            handle:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
+            followers:
+              type: integer
+            verified:
+              type: boolean
+
+    Contact:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        replies_90d:
+          type: integer
+        reposts_90d:
+          type: integer
+
+    ContactReply:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+          nullable: true
+        metrics:
+          type: object
+          properties:
+            likes:
+              type: integer
+        in_reply_to:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            text:
+              type: string
+            posted_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    ReceivedReply:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+          nullable: true
+        metrics:
+          type: object
+          properties:
+            likes:
+              type: integer
+        author:
+          type: object
+          description: The replier. Profile fields are null when no stored profile exists.
+          properties:
+            id:
+              type: string
+            username:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
+            avatar_url:
+              type: string
+              nullable: true
+        in_reply_to:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            text:
+              type: string
+            posted_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    ContactList:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        is_system:
+          type: boolean
+        kind:
+          type: string
+          nullable: true
+          enum: [followers, following, repliers, reposters, null]
+          description: Set on system lists only.
+        member_count:
+          type: integer
+          description: Members in the list. Always 0 for system lists (their membership is maintained automatically and is not exposed here).
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ContactListMember:
+      type: object
+      properties:
+        id:
+          type: string
+          description: The membership id used by the remove endpoint.
+        x_user_id:
+          type: string
+        username:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        followers_count:
+          type: integer
+          nullable: true
+        following_count:
+          type: integer
+          nullable: true
+        engaged_count:
+          type: integer
+          description: Replies + reposts to the account in the last 90 days.
+        source:
+          type: string
+          nullable: true
+          description: How the member entered the list (for example manual).
+        added_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    AddedContactListMember:
+      type: object
+      description: Compact member shape returned by the add endpoint.
+      properties:
+        id:
+          type: string
+        x_user_id:
+          type: string
+        username:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        added_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SignalAgentSignal:
+      type: object
+      description: One watched signal on an agent. Which fields are set depends on the type (handle/name/avatar for profile and follower watches, query for keyword watches, list_name for list watches).
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [profile_watch, follower_watch, keyword_watch, list_watch]
+        handle:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatar:
+          type: string
+          nullable: true
+        query:
+          type: string
+          nullable: true
+        list_name:
+          type: string
+          nullable: true
+        status:
+          type: string
+        status_detail:
+          type: string
+          nullable: true
+        last_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SignalAgent:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          description: active, paused, or error.
+        status_detail:
+          type: string
+          nullable: true
+        icp_description:
+          type: string
+          description: The ideal customer profile the agent scores people against.
+        precision_mode:
+          type: string
+          enum: [high, discovery]
+        destination_list_id:
+          type: string
+          nullable: true
+          description: The contact list deposits go to; joins to `GET /v1/contact-lists`.
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        deposited_count:
+          type: integer
+          description: Leads already saved to the destination list.
+        last_checked:
+          type: string
+          format: date-time
+          nullable: true
+          description: The most recent signal run across the agent's signals.
+        signals:
+          type: array
+          items: { $ref: "#/components/schemas/SignalAgentSignal" }
+
+    SignalLead:
+      type: object
+      properties:
+        id:
+          type: integer
+        agent:
+          type: object
+          description: The agent that found this lead, with its current status.
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            status:
+              type: string
+        user:
+          type: object
+          description: The lead's stored profile. Profile fields are null when no snapshot is stored; the lead is still returned.
+          properties:
+            x_user_id:
+              type: string
+              nullable: true
+            username:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
+            avatar_url:
+              type: string
+              nullable: true
+            followers_count:
+              type: integer
+              nullable: true
+            following_count:
+              type: integer
+              nullable: true
+            location:
+              type: string
+              nullable: true
+        icp_score:
+          type: integer
+          nullable: true
+          description: How strongly the person matched the agent's ideal customer profile.
+        icp_rationale:
+          type: string
+          nullable: true
+        deposited:
+          type: boolean
+          description: Whether the lead has been saved to the agent's contact list yet.
+        deposited_at:
+          type: string
+          format: date-time
+          nullable: true
+        discovered_at:
+          type: string
+          format: date-time
+          nullable: true
+        provenance:
+          type: object
+          nullable: true
+          description: How the lead was discovered. Null when no provenance is stored.
+          properties:
+            type:
+              type: string
+              nullable: true
+            action:
+              type: string
+              nullable: true
+            source_ref:
+              type: string
+              nullable: true
+            tweet_id:
+              type: string
+              nullable: true
+            tweet_text:
+              type: string
+              nullable: true
+            target_handle:
+              type: string
+              nullable: true
+
+    ScheduledPost:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [draft, scheduled, sent, error]
+        scheduled_for:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null for drafts.
+        parts:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+              media:
+                type: array
+                description: Present only when the part carries media.
+                items:
+                  type: object
+                  properties:
+                    object_key:
+                      type: string
+                      description: Re-use this on PATCH to keep the attachment.
+                    url:
+                      type: string
+                    file_type:
+                      type: string
+                    size:
+                      type: integer
+                      nullable: true
+                    alt_text:
+                      type: string
+                      nullable: true
+        title:
+          type: string
+          nullable: true
+          description: Draft title shown in the SuperX app. Never posted.
+        scratchpad:
+          type: string
+          nullable: true
+          description: Private working notes. Never posted.
+        tags:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              color:
+                type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Tag:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        color:
+          type: string
+          description: Palette color name rendered by the SuperX app (for example rose, amber, blue, violet).
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Article:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [draft, scheduled, publishing, published, failed]
+        content_markdown:
+          type: string
+          description: The article body as markdown. Present on single-article responses only, never in lists.
+        cover:
+          type: object
+          nullable: true
+          properties:
+            url:
+              type: string
+        scheduled_for:
+          type: string
+          format: date-time
+          nullable: true
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        x_post_id:
+          type: string
+          nullable: true
+          description: The X post id once published.
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null in list responses.
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+  responses:
+    InvalidParameter:
+      description: A parameter is missing, malformed, or out of range.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: invalid_parameter
+              message: "since must be a UTC ISO-8601 timestamp"
+
+    Unauthorized:
+      description: Missing/malformed Authorization header (`unauthorized`) or an unknown/revoked key (`invalid_api_key`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: invalid_api_key
+              message: "Unknown or revoked API key"
+
+    SubscriptionRequired:
+      description: |
+        Subscription lapsed. NOTE the legacy body shape: `error` is a plain
+        string here, not the `{ code, message }` object. Read-only keys on
+        write endpoints instead get the object envelope with code
+        `insufficient_scope`.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              - $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error: "subscription_required: The SuperX API requires an active subscription"
+
+    WriteForbidden:
+      description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - $ref: "#/components/schemas/LegacyErrorEnvelope"
+          example:
+            error:
+              code: insufficient_scope
+              message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+
+    ArticleNotFound:
+      description: No article with that id belongs to this account.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: not_found
+              message: "No article with that id belongs to this account."
+
+    AccountNotFound:
+      description: account_id is not one of your accounts.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: account_not_found
+              message: "No account with that id belongs to this key"
+
+    ListNotFound:
+      description: No contact list with that id belongs to this account.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: list_not_found
+              message: "No contact list with that id belongs to this account."
+
+    ListOrUserNotFound:
+      description: The list id is not one of your lists (`list_not_found`), or the handle did not match an X account (`user_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: user_not_found
+              message: "No X account matches that handle."
+
+    MemberNotFound:
+      description: The list id is not one of your lists (`list_not_found`), or the member id is not in that list (`member_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: member_not_found
+              message: "No member with that id belongs to this list."
+
+    AgentNotFound:
+      description: The agent_id is not one of your signal agents (`agent_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: agent_not_found
+              message: "No signal agent with that agent_id belongs to this account."
+
+    SystemListReadOnly:
+      description: Member add/remove on a system list (`system_list_read_only`), or a malformed body (`invalid_parameter`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: system_list_read_only
+              message: "System lists are managed automatically and can't be edited."
+
+    SystemListNotSupported:
+      description: Member reads on a system list are not supported.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: system_list_not_supported
+              message: "System list members can't be read through the API. Use a list you created instead."
+
+    RateLimited:
+      description: Rate limit exceeded (limits vary by plan). Honor Retry-After.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+        X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+        X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+        X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: rate_limited
+              message: "Rate limit exceeded for the Pro plan (30 requests/min). Upgrade for higher limits."
+              retry_after: 42
+
+    InternalError:
+      description: Unexpected server error. May also use the legacy string envelope when subscription verification fails.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - $ref: "#/components/schemas/LegacyErrorEnvelope"
+          example:
+            error:
+              code: internal_error
+              message: "Failed to fetch posts"
+
+    UpstreamError:
+      description: A dependent SuperX service returned an unexpected response.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: upstream_error
+              message: "Failed to fetch scheduled posts. Try again shortly."
+
+    UpstreamUnavailable:
+      description: The scheduling service is temporarily unreachable. Safe to retry; reuse your Idempotency-Key on POST.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: upstream_unavailable
+              message: "The scheduling service is temporarily unavailable. Retry with the same Idempotency-Key."
+
+    AccountsUnavailable:
+      description: Linked-account verification is temporarily unavailable (fail closed). The main account keeps working.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: accounts_unavailable
+              message: "Account information is temporarily unavailable. Try again shortly."

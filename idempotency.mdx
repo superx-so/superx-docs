@@ -1,0 +1,36 @@
+---
+title: "Idempotency"
+description: "Safely retry POST /v1/scheduled-posts without creating duplicates."
+---
+
+Network timeouts make writes ambiguous: the request may or may not have landed. `POST /v1/scheduled-posts` supports idempotency keys so retries converge on **one** post instead of creating duplicates.
+
+## Usage
+
+Send a unique key (up to 64 characters; a UUID works well) with the request:
+
+```bash
+curl -X POST https://api.superx.so/v1/scheduled-posts \
+  -H "Authorization: Bearer sxk_..." \
+  -H "Idempotency-Key: 2f1e8a54-6f6c-4a3b-9a1e-example00001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Shipping day.",
+    "scheduled_for": "2026-07-08T15:00:00Z"
+  }'
+```
+
+On success the response is `201` with the created post. If the request times out or returns `503 upstream_unavailable`, retry with the **same key and same body**; you will end up with exactly one scheduled post.
+
+## Semantics
+
+- The key is reserved **before** the write is attempted, and the post id is fixed at reservation time. Retries reuse that id, which is why they cannot duplicate.
+- Same key, same body, after a completed request: the stored response is replayed with its original status (`201`, or a stored definitive `4xx`), plus the header `Idempotency-Replayed: true`.
+- Same key, **different body**: `409 idempotency_key_reuse`. Keys identify one logical request; new content needs a new key.
+- Definitive rejections (`4xx`) are stored and replayed. Transient failures (`5xx`, unreachable) are **not** stored, so retrying the same key attempts the write again.
+- Keys are retained for 24 hours; after that the same key behaves as new.
+- Requests without an `Idempotency-Key` header get no idempotency protection.
+
+## Scope
+
+Idempotency keys are scoped to the API key that sent them; two of your API keys can use the same string without colliding. Only `POST /v1/scheduled-posts` uses idempotency keys. `DELETE` is naturally idempotent: deleting an already-deleted post returns `404 not_found`.

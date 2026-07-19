@@ -1,0 +1,47 @@
+---
+title: "Rate limits"
+description: "Per-plan request limits, response headers and how to back off."
+---
+
+Limits depend on your SuperX plan, with separate buckets for reads (`GET`), writes (`POST`, `PATCH`, `DELETE`) and live contact enrichment (adding contact-list members):
+
+| Plan | Reads/min | Reads/day | Writes/min | Writes/day | Enrichment/min | Enrichment/day |
+| --- | --- | --- | --- | --- | --- | --- |
+| Trial | 15 | 2,000 | 5 | 50 | 2 | 20 |
+| Pro | 30 | 5,000 | 10 | 300 | 5 | 100 |
+| Advanced | 120 | 20,000 | 30 | 1,000 | 10 | 250 |
+| Ultra | 400 | 60,000 | 60 | 2,000 | 15 | 500 |
+
+Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit.
+
+Windows are fixed (aligned to the clock minute and UTC day), not sliding.
+
+## Response headers
+
+Every authenticated `/v1` response, not just rate-limited ones, includes:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit` | The limit of the window closest to exhaustion |
+| `X-RateLimit-Remaining` | Requests left in that window |
+| `X-RateLimit-Reset` | Unix timestamp (seconds) when that window resets |
+
+## When you hit a limit
+
+Over-limit requests return `429` with a `Retry-After` header (seconds) and this body:
+
+```json
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "Rate limit exceeded for the Pro plan (30 requests/min). Upgrade for higher limits.",
+    "retry_after": 42
+  }
+}
+```
+
+Honor `Retry-After` before retrying. For sustained workloads, spread requests out rather than bursting at the top of each minute, and page with `limit=100` to reduce request counts.
+
+## Failed authentication attempts
+
+Requests with unknown or revoked keys are limited separately, per IP address, at 20 per minute. This limiter never affects correctly authenticated traffic.

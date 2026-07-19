@@ -1,0 +1,48 @@
+---
+title: "Introduction"
+description: "The SuperX public API: your Twitter/X content, analytics and audience data over simple REST endpoints."
+---
+
+The SuperX API gives you programmatic access to the same data you see in the SuperX app: your published posts and their metrics, analytics over time, the people who engage with you, and your drafts and scheduled posts. You can also create and delete scheduled posts.
+
+## Base URL
+
+```
+https://api.superx.so/v1
+```
+
+All endpoints live under `/v1`. Requests and responses are JSON, except `GET /v1/docs`, which returns a short machine-readable markdown quickstart without authentication.
+
+## What you can do
+
+| Area | Endpoints |
+| --- | --- |
+| Identity | `GET /v1/me`, `GET /v1/accounts` |
+| Content | `GET /v1/posts`, `GET /v1/replies` |
+| Analytics | `GET /v1/posts/analytics` |
+| Audience | `GET /v1/contacts`, `GET /v1/contacts/{id}/replies` |
+| Scheduling | `GET /v1/scheduled-posts`, `POST /v1/scheduled-posts`, `DELETE /v1/scheduled-posts/{id}` |
+
+Media uploads are not supported yet: posts created through the API are text-only, and any `media` field in a request is rejected with `400 media_not_supported`.
+
+## Conventions
+
+- **Timestamps** are UTC ISO-8601 in both directions. Inputs must include an explicit `Z` or a numeric offset (`2026-07-06T12:00:00Z`, `2026-07-06T14:00:00+02:00`). Timestamps without a timezone are rejected with `400 invalid_parameter`.
+- **Lists** return `{ "data": [...], "pagination": { "page", "limit", "has_more", "total"? } }`. `limit` is capped at 100; `total` appears only where it is cheap to compute.
+- **Errors** return `{ "error": { "code", "message" } }` with a stable machine-readable code. See [Errors](/errors) for the codes and one legacy exception.
+- **Account selection**: most endpoints accept an `account_id` parameter. When omitted, your main account is used. See [Accounts](/accounts).
+
+## Quick start
+
+1. Create an API key in the SuperX app: **Account > Developers**.
+2. Copy the key when it is shown. It is displayed exactly once.
+3. Make a request:
+
+```bash
+curl https://api.superx.so/v1/me \
+  -H "Authorization: Bearer sxk_your_key_here"
+```
+
+## Requirements
+
+An active SuperX subscription (including trials and team-billed accounts). If the subscription lapses, requests return `403` until you resubscribe; your keys are kept and start working again automatically.
