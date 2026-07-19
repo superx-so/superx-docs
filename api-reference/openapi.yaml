@@ -1580,7 +1580,12 @@ paths:
                   tags: []
                   created_at: "2026-07-06T10:00:00.000Z"
         "400":
-          description: Invalid parameter, invalid request, unknown tag id (`unknown_tag`), or a media problem: unknown or foreign `object_key` (`invalid_media`), bytes never uploaded (`media_not_uploaded`), not a supported image (`unsupported_media_type`), or over the size cap (`media_too_large`).
+          description: >-
+            Invalid parameter, invalid request, unknown tag id (`unknown_tag`),
+            or a media problem: unknown or foreign `object_key`
+            (`invalid_media`), bytes never uploaded (`media_not_uploaded`),
+            not a supported image (`unsupported_media_type`), or over the size
+            cap (`media_too_large`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -1749,7 +1754,13 @@ paths:
                   tags: []
                   created_at: "2026-07-05T20:11:00.000Z"
         "400":
-          description: Invalid parameter, unknown tag id (`unknown_tag`), a missing future time for `status:"scheduled"`, or a media problem: unknown or foreign `object_key` (`invalid_media`), bytes never uploaded (`media_not_uploaded`), not a supported image (`unsupported_media_type`), or over the size cap (`media_too_large`).
+          description: >-
+            Invalid parameter, unknown tag id (`unknown_tag`), a missing future
+            time for `status:"scheduled"`, or a media problem: unknown or
+            foreign `object_key` (`invalid_media`), bytes never uploaded
+            (`media_not_uploaded`), not a supported image
+            (`unsupported_media_type`), or over the size cap
+            (`media_too_large`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
