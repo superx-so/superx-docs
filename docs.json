@@ -30,11 +30,11 @@
           },
           {
             "group": "CLI & Agents",
-            "pages": ["cli", "mcp"]
+            "pages": ["cli", "mcp-server"]
           },
           {
             "group": "Updates",
-            "pages": ["changelog"]
+            "pages": ["updates"]
           }
         ]
       },
