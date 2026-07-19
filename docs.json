@@ -7,6 +7,9 @@
     "dark": "/logo/dark.svg"
   },
   "favicon": "/favicon.png",
+  "appearance": {
+    "default": "system"
+  },
   "colors": {
     "primary": "#F4503B",
     "light": "#FB7359",
