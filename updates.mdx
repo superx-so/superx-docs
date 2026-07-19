@@ -64,7 +64,7 @@ X Articles (long-form posts):
 
 Drafts, editing, and tags:
 
-- `PATCH /v1/scheduled-posts/{id}`: edit a draft or scheduled post. Only the fields you send change; text edits, new times, title/scratchpad, tag replacement, and explicit `status` transitions (`draft` <-> `scheduled`, riding the normal quota deduct/refund). A `scheduled_for` alone never promotes a draft.
+- `PATCH /v1/scheduled-posts/{id}`: edit a draft or scheduled post. Only the fields you send change; text edits, new times, title/scratchpad, tag replacement, and explicit `status` transitions (`draft` to `scheduled` and back, riding the normal quota deduct/refund). A `scheduled_for` alone never promotes a draft.
 - `POST /v1/scheduled-posts` now accepts `title` (max 300 chars), `scratchpad` (max 30,000 chars), and `tags` (up to 20 tag ids); all three appear in the responses and in `GET /v1/scheduled-posts`, which also gains a `tags` filter (comma list, any-of)
 - Tags CRUD: `GET/POST /v1/tags`, `PATCH/DELETE /v1/tags/{id}`
 - `status=draft` on `GET /v1/scheduled-posts` now includes legacy board drafts (previously hidden internal statuses), reported as `"draft"`
