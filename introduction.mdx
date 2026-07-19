@@ -18,12 +18,15 @@ All endpoints live under `/v1`. Requests and responses are JSON, except `GET /v1
 | Area | Endpoints |
 | --- | --- |
 | Identity | `GET /v1/me`, `GET /v1/accounts` |
-| Content | `GET /v1/posts`, `GET /v1/replies` |
+| Content | `GET /v1/posts`, `GET /v1/replies`, `GET /v1/replies/received` |
 | Analytics | `GET /v1/posts/analytics` |
-| Audience | `GET /v1/contacts`, `GET /v1/contacts/{id}/replies` |
-| Scheduling | `GET /v1/scheduled-posts`, `POST /v1/scheduled-posts`, `DELETE /v1/scheduled-posts/{id}` |
+| Audience | `GET /v1/contacts`, `GET /v1/contacts/{id}/replies`, contact lists (`/v1/contact-lists`) |
+| Scheduling | `/v1/scheduled-posts` CRUD, tags (`/v1/tags`), `POST /v1/media` |
+| Articles | `/v1/articles` CRUD, schedule/publish, AI cover generation |
+| Signals | `/v1/signals/agents` CRUD, `GET /v1/signals/leads` |
+| Inspiration | `GET /v1/inspiration` |
 
-Media uploads are not supported yet: posts created through the API are text-only, and any `media` field in a request is rejected with `400 media_not_supported`.
+Posts take images: presign with `POST /v1/media`, PUT the bytes, then attach the returned `object_key` via `parts[].media` (up to 4 images or exactly 1 GIF per part, optional `alt_text`). JPG, PNG, WEBP up to 5MB; GIF up to 15MB. Video is not supported yet.
 
 ## Conventions
 
