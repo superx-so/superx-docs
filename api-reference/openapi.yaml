@@ -7,7 +7,7 @@ info:
     scheduling data over REST.
 
     All endpoints require an API key (`Authorization: Bearer sxk_...`) except
-    `GET /v1/docs`. Keys are created in the SuperX app under Account > Developers
+    `GET /v1/docs`. Keys are created in the SuperX app under Account > API / MCP / CLI
     and are server-side secrets.
 
     Timestamps are UTC ISO-8601 in both directions; inputs must carry an explicit
@@ -2672,7 +2672,7 @@ components:
     apiKey:
       type: http
       scheme: bearer
-      description: A SuperX API key ("sxk_..."), created in the SuperX app under Account > Developers. Keys are server-side secrets.
+      description: A SuperX API key ("sxk_..."), created in the SuperX app under Account > API / MCP / CLI. Keys are server-side secrets.
 
   headers:
     X-RateLimit-Limit:

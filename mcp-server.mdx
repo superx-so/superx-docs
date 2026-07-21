@@ -5,7 +5,7 @@ description: "Connect Claude Code, Codex, ChatGPT, and Claude directly to your S
 
 SuperX hosts a remote MCP (Model Context Protocol) server at `https://api.superx.so/v1/mcp`. Any MCP client can read your X (Twitter) analytics, posts, contacts, contact lists, audience replies, signal agents and their leads, tags, scheduled queue, and long-form Articles, search a library of high-performing posts for inspiration, schedule, edit, or delete posts (with image attachments), manage contact list members, create, pause, resume, or delete signal agents (automated lead finders), and create, edit, schedule, and publish Articles with AI cover generation, using the same API keys as the REST API. Nothing to install or run yourself.
 
-You need an API key from [app.superx.so/account?tab=developers](https://app.superx.so/account?tab=developers) and an active SuperX subscription.
+You need an API key from [app.superx.so/account?tab=api](https://app.superx.so/account?tab=api) and an active SuperX subscription.
 
 ## Claude Code and Codex (header auth)
 
@@ -28,7 +28,7 @@ https://api.superx.so/v1/mcp/YOUR_API_KEY
 - **ChatGPT**: Settings, then Connectors, then add a custom connector with this URL. Set authentication to none (the key is in the URL).
 - **claude.ai**: Settings, then Connectors, then add a custom connector (remote MCP server) with this URL, authentication none.
 
-The Developers tab in the SuperX app shows the ready-to-paste URL once, right when you create a key.
+The API / MCP / CLI tab in the SuperX app shows the ready-to-paste URL once, right when you create a key.
 
 ## Tools
 
@@ -76,13 +76,13 @@ Timestamps passed to the scheduling tools must be ISO-8601 with an explicit `Z` 
 
 ## Security
 
-The keyed URL **is** your API key. Treat it like a password: share it only with the connector, keep it out of chat transcripts and screenshots, and rotate the key from the Developers tab if it ever leaks. Prefer header auth wherever the client supports it. SuperX redacts the key from its own request logs.
+The keyed URL **is** your API key. Treat it like a password: share it only with the connector, keep it out of chat transcripts and screenshots, and rotate the key from the API / MCP / CLI tab if it ever leaks. Prefer header auth wherever the client supports it. SuperX redacts the key from its own request logs.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
-| `401 invalid_api_key` | Wrong, mistyped, or revoked key. Create or rotate a key in the Developers tab. |
+| `401 invalid_api_key` | Wrong, mistyped, or revoked key. Create or rotate a key in the API / MCP / CLI tab. |
 | `403 subscription_required` | The key owner's SuperX subscription is not active. |
 | `405 Method not allowed` | The endpoint is POST-only. Some clients probe with GET first; that is harmless. |
 | Duplicate scheduled posts | `schedule_post` has no idempotency. If a call timed out or was retried, check `get_scheduled_posts` before calling it again. |
