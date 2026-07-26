@@ -1456,6 +1456,17 @@ paths:
         `POST /v1/media` (uploaded bytes required first). Up to 4 images or
         exactly 1 GIF per part; `alt_text` is capped at 1,000 characters.
         Video is not supported yet.
+
+        Advanced settings (`auto_retweet`, `auto_delete`, `auto_plug`,
+        `super_followers_only`): omit a setting to inherit its Default Post
+        Settings value from the SuperX app, send an object (or `true`/`false`
+        for `super_followers_only`) to override, or send `null` to turn it
+        off for this post. Exactly five settings inherit this way: auto
+        retweet, auto delete, auto plug, auto DM, and Super Followers only.
+        Other composer defaults (for example Bluesky cross-posting or
+        share-with-followers) are never applied to API posts. Auto DM always
+        inherits and has no request parameter; when a plan limit strips it,
+        the response carries `auto_dm_skipped: true` instead of failing.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1518,6 +1529,53 @@ paths:
                   description: Tag ids to assign (from `GET /v1/tags`). Unknown ids fail the whole request with `400 unknown_tag` before anything is created.
                   items:
                     type: string
+                auto_retweet:
+                  type: object
+                  nullable: true
+                  description: Auto retweet. Omit to inherit your Default Post Settings; `null` turns it off for this post.
+                  required: [after_hours]
+                  properties:
+                    after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                      description: Retweet the post this many hours after it goes live.
+                    remove_after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                      description: Remove the retweet this many hours later. Omit to keep it.
+                auto_delete:
+                  type: object
+                  nullable: true
+                  description: Auto delete underperforming posts. Omit to inherit your defaults; `null` turns it off for this post.
+                  required: [after_hours]
+                  properties:
+                    after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                      description: Delete the post this many hours after it goes live if it is under the views threshold.
+                    threshold:
+                      type: integer
+                      minimum: 0
+                      description: Views threshold (default 1000).
+                auto_plug:
+                  type: object
+                  nullable: true
+                  description: "Auto plug: reply with a template once the post hits a likes threshold. Omit to inherit your defaults; `null` turns it off for this post. Unknown template ids fail with `400 unknown_plug_template`."
+                  required: [template_id, threshold]
+                  properties:
+                    template_id:
+                      type: string
+                      description: Plug template id (from `GET /v1/plug-templates`).
+                    threshold:
+                      type: integer
+                      minimum: 1
+                      description: Likes threshold that triggers the plug reply.
+                super_followers_only:
+                  type: boolean
+                  description: Post to Super Followers only. Omit to inherit your defaults.
                 account_id:
                   type: string
                   description: Must be your main account (or omitted). Linked accounts return `403 writes_main_account_only`.
@@ -1548,11 +1606,22 @@ paths:
                         - object_key: "u123/api_1751980800000_9f3a1c2b_chart.png"
                           alt_text: "Line chart of weekly revenue trending up"
                   scheduled_for: "2026-07-08T15:00:00Z"
+              advanced:
+                summary: Explicit advanced settings
+                value:
+                  text: "Shipping day."
+                  scheduled_for: "2026-07-08T15:00:00Z"
+                  auto_retweet: { after_hours: 6, remove_after_hours: 4 }
+                  auto_plug: { template_id: "tpl_abc123", threshold: 50 }
+                  auto_delete: null
       responses:
         "201":
           description: >-
-            The created post. Replayed idempotent requests also return this
-            body with the "Idempotency-Replayed" header set to "true".
+            The created post (echo of the accepted request, not the stored
+            row). Replayed idempotent requests also return this body with the
+            "Idempotency-Replayed" header set to "true". Applied advanced
+            settings, inherited or explicit, are NOT echoed here; read them
+            back via GET /v1/scheduled-posts.
           headers:
             Idempotency-Replayed:
               description: Present and "true" when this response was replayed from a previous request with the same Idempotency-Key.
@@ -1567,7 +1636,68 @@ paths:
                 type: object
                 properties:
                   data:
-                    $ref: "#/components/schemas/ScheduledPost"
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      status:
+                        type: string
+                        enum: [draft, scheduled]
+                      scheduled_for:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      parts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            text:
+                              type: string
+                            media:
+                              type: array
+                              description: Present only when the part carries media.
+                              items:
+                                type: object
+                                properties:
+                                  object_key:
+                                    type: string
+                                  url:
+                                    type: string
+                                  file_type:
+                                    type: string
+                                  size:
+                                    type: integer
+                                    nullable: true
+                                  alt_text:
+                                    type: string
+                                    nullable: true
+                      title:
+                        type: string
+                        nullable: true
+                      scratchpad:
+                        type: string
+                        nullable: true
+                      tags:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            color:
+                              type: string
+                      created_at:
+                        type: string
+                        format: date-time
+                      auto_dm_skipped:
+                        type: boolean
+                        description: >-
+                          Present (and true) only when a plan limit stripped
+                          the inherited Auto DM from this post. Absent
+                          otherwise.
               example:
                 data:
                   id: "V1StGXR8_Z5jdHi6B-myT"
@@ -1582,6 +1712,7 @@ paths:
         "400":
           description: >-
             Invalid parameter, invalid request, unknown tag id (`unknown_tag`),
+            unknown plug template id (`unknown_plug_template`),
             or a media problem: unknown or foreign `object_key`
             (`invalid_media`), bytes never uploaded (`media_not_uploaded`),
             not a supported image (`unsupported_media_type`), or over the size
@@ -1649,6 +1780,12 @@ paths:
         title/scratchpad/time/status without touching text or media.
         No `Idempotency-Key` handling: PATCH is naturally idempotent.
         Concurrent edits are last-write-wins.
+
+        Advanced settings (`auto_retweet`, `auto_delete`, `auto_plug`,
+        `super_followers_only`) use the same shapes as create but never
+        inherit defaults on update: provided = override, omitted = keep the
+        post's current setting, `null` = remove it. Auto DM has no parameter
+        and always round-trips untouched.
       parameters:
         - name: id
           in: path
@@ -1711,6 +1848,49 @@ paths:
                   description: Full replacement tag id set. `[]` clears all tags. Unknown ids fail with `400 unknown_tag`.
                   items:
                     type: string
+                auto_retweet:
+                  type: object
+                  nullable: true
+                  description: Auto retweet override; `null` removes it. Omit to keep the current setting.
+                  required: [after_hours]
+                  properties:
+                    after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                    remove_after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                auto_delete:
+                  type: object
+                  nullable: true
+                  description: Auto delete override; `null` removes it. Omit to keep the current setting.
+                  required: [after_hours]
+                  properties:
+                    after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                    threshold:
+                      type: integer
+                      minimum: 0
+                      description: Views threshold (default 1000).
+                auto_plug:
+                  type: object
+                  nullable: true
+                  description: Auto plug override; `null` removes it. Omit to keep the current setting. Unknown template ids fail with `400 unknown_plug_template`.
+                  required: [template_id, threshold]
+                  properties:
+                    template_id:
+                      type: string
+                      description: Plug template id (from `GET /v1/plug-templates`).
+                    threshold:
+                      type: integer
+                      minimum: 1
+                super_followers_only:
+                  type: boolean
+                  description: Post to Super Followers only. Omit to keep the current setting.
                 account_id:
                   type: string
                   description: Must be your main account (or omitted).
@@ -1719,6 +1899,10 @@ paths:
                 summary: Change only the title
                 value:
                   title: "Launch teaser v2"
+              remove_auto_retweet:
+                summary: Remove the post's auto retweet
+                value:
+                  auto_retweet: null
               promote:
                 summary: Promote a draft to the queue
                 value:
@@ -1755,7 +1939,8 @@ paths:
                   created_at: "2026-07-05T20:11:00.000Z"
         "400":
           description: >-
-            Invalid parameter, unknown tag id (`unknown_tag`), a missing future
+            Invalid parameter, unknown tag id (`unknown_tag`), unknown plug
+            template id (`unknown_plug_template`), a missing future
             time for `status:"scheduled"`, or a media problem: unknown or
             foreign `object_key` (`invalid_media`), bytes never uploaded
             (`media_not_uploaded`), not a supported image
@@ -1860,6 +2045,43 @@ paths:
                 error:
                   code: not_found
                   message: "No scheduled post with that id belongs to this account."
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/plug-templates:
+    get:
+      tags: [Scheduling]
+      operationId: listPlugTemplates
+      summary: List plug templates
+      description: >-
+        Lists your auto-plug reply templates (authored in the SuperX app
+        under Default Post Settings). Pass a template id as
+        `auto_plug.template_id` when creating or updating a scheduled post.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: All plug templates.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlugTemplate" }
+              example:
+                data:
+                  - id: "tpl_abc123"
+                    text: "Enjoyed this? Follow for more, and grab the full guide here:"
+                    has_media: false
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -3402,6 +3624,71 @@ components:
           type: string
           format: date-time
           nullable: true
+        auto_retweet:
+          type: object
+          nullable: true
+          description: Applied auto-retweet setting; null when off.
+          properties:
+            after_hours:
+              type: integer
+              nullable: true
+            remove_after_hours:
+              type: integer
+              nullable: true
+        auto_delete:
+          type: object
+          nullable: true
+          description: Applied auto-delete setting; null when off.
+          properties:
+            after_hours:
+              type: integer
+              nullable: true
+            threshold:
+              type: integer
+              nullable: true
+        auto_plug:
+          type: object
+          nullable: true
+          description: Applied auto-plug setting; null when off.
+          properties:
+            template_id:
+              type: string
+              nullable: true
+            threshold:
+              type: integer
+              nullable: true
+        auto_dm:
+          type: object
+          nullable: true
+          description: Applied Auto DM setting (inherit-only, read-only); null when off. The DM text stays in the SuperX app.
+          properties:
+            enabled:
+              type: boolean
+            max_dms:
+              type: integer
+              nullable: true
+            batch_mode:
+              type: boolean
+            triggers:
+              type: object
+              properties:
+                reply:
+                  type: boolean
+                retweet:
+                  type: boolean
+        super_followers_only:
+          type: boolean
+
+    PlugTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        has_media:
+          type: boolean
+          description: True when the template replies with media attached.
 
     Tag:
       type: object
