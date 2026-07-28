@@ -65,6 +65,11 @@ The credentials file takes priority over the environment variable when both exis
 | `superx scheduled:update <id>` | Edit a draft or scheduled post; only the flags you pass change (`--status scheduled` promotes; text replacement without `--media` removes the post's images; `--no-auto-retweet` and friends remove advanced settings) |
 | `superx scheduled:delete <id>` | Delete a draft or scheduled post by id |
 | `superx plug-templates:list` | List your auto-plug reply templates (id, text, has_media) for `--auto-plug` |
+| `superx context:get` | Show the account's Context settings: profile description, interests, rules, reply settings, favorite creators, style guide, products |
+| `superx context:set` | Edit Context settings; only the flags you pass change (`""` clears a string; `--interests`/`--favorite-creators` comma lists fully replace) |
+| `superx context:products` | List the account's products (used for product mentions in generated content) |
+| `superx context:products:set` | Add or edit one product by `--url` (creates it when new, cap 5) or `--id` |
+| `superx context:products:delete <id>` | Remove a product by id (reversible by re-adding the same url) |
 | `superx tags:list` | List your tags (id, name, color) |
 | `superx tags:create <name>` | Create a tag (`--color` picks a palette color, default blue) |
 | `superx tags:update <id>` | Rename and/or recolor a tag |
@@ -89,6 +94,8 @@ To post an image: `superx media:upload ./chart.png` prints an `object_key`, then
 Advanced settings on `scheduled:create`: flags you omit inherit your Default Post Settings from the SuperX app. Exactly five settings inherit this way (auto retweet, auto delete, auto plug, auto DM, Super Followers only); other composer defaults such as Bluesky cross-posting or share-with-followers are never applied to API posts. `--auto-retweet <hours>` (1-12, plus `--auto-retweet-remove <hours>`), `--auto-delete <hours>` (1-12, plus `--auto-delete-threshold <views>`, default 1000), `--auto-plug <templateId>` with `--auto-plug-threshold <likes>` (template ids from `plug-templates:list`), and `--super-followers` set explicit values; the `--no-*` forms (`--no-auto-retweet`, `--no-auto-delete`, `--no-auto-plug`, `--no-super-followers`) turn a setting off for that post. On `scheduled:update` there is no inheritance: flags you pass override, omitted flags keep the post's current settings, and `--no-*` removes them. Auto DM always follows your app defaults; if a plan limit strips it at create time, the response carries `auto_dm_skipped: true`.
 
 Article bodies are markdown in both directions: headings, lists, blockquotes, bold/italic/strikethrough, links, images by URL, and bare X post URLs as embeds. Constructs the X Articles format cannot express (code blocks, horizontal rules) degrade to plain text and are reported in a `warnings` array.
+
+Context settings (`context:get` / `context:set`) are the background SuperX's AI uses when writing for the account: the profile description grounds the voice, `--interests` drive content suggestions, `--rules` are mandatory instructions on every AI surface, `--reply-rules` and `--reply-author-name` steer generated replies, `--favorite-creators` (max 3) inspire the style, and `--style-audience`/`--style-vocabulary` outrank the app's generated style guide until cleared with `""`. Boolean flags support `--no-*` negation. Caps: 500 characters for the profile description, rules, and reply rules; 600 for the style audience; 1000 for the style vocabulary; 30 interests; 3 creators; 5 products.
 
 ## JSON output
 
