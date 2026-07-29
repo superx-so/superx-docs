@@ -1,9 +1,9 @@
 ---
 title: "Accounts"
-description: "Main and linked accounts, the account_id selector, and degraded responses."
+description: "Main, linked and shared accounts, the account_id selector, and degraded responses."
 ---
 
-A SuperX user has one **main account** (the X account they signed up with) and may have **linked accounts** they also manage. API keys belong to the user, and can read data for any of their accounts.
+A SuperX user has one **main account** (the X account they signed up with) and may have **linked accounts** they also manage. They may also have **shared accounts**: accounts someone else owns and has shared with them, directly or through a team. API keys belong to the user, and can read data for any of these accounts.
 
 ## Listing your accounts
 
@@ -20,19 +20,34 @@ curl https://api.superx.so/v1/accounts \
       "username": "mainhandle",
       "name": "Main Account",
       "avatar_url": "https://pbs.twimg.com/profile_images/example.jpg",
-      "is_main": true
+      "is_main": true,
+      "shared": false,
+      "permission": "full"
     },
     {
       "id": "1299139023923867648",
       "username": "brandhandle",
       "name": "Brand Account",
       "avatar_url": "https://pbs.twimg.com/profile_images/example2.jpg",
-      "is_main": false
+      "is_main": false,
+      "shared": false,
+      "permission": "full"
+    },
+    {
+      "id": "1825496686774358017",
+      "username": "clienthandle",
+      "name": "Client Account",
+      "avatar_url": "https://pbs.twimg.com/profile_images/example3.jpg",
+      "is_main": false,
+      "shared": true,
+      "permission": "editor"
     }
   ],
-  "pagination": { "page": 1, "limit": 2, "has_more": false }
+  "pagination": { "page": 1, "limit": 3, "has_more": false }
 }
 ```
+
+`shared` is `true` for accounts another user shared with you (manual shares and team shares alike). `permission` is `full` or `editor` and describes what you may change on that account; your own accounts are always `full`. Revoking a share removes the account from this list within a few minutes.
 
 ## Selecting an account
 
@@ -42,13 +57,18 @@ Endpoints that operate on one account accept an `account_id` parameter (query pa
 - An `id` from your account list: that account is used.
 - Anything else: `404 account_not_found`.
 
-## Writes are main-account-only
+## Writes are main-account-only, with two exceptions
 
-`POST /v1/scheduled-posts` and `DELETE /v1/scheduled-posts/{id}` currently work only for your main account. Passing a linked account's `account_id` to a write endpoint returns `403 writes_main_account_only`. Reads work for all accounts.
+Most writes, including `POST /v1/scheduled-posts` and `DELETE /v1/scheduled-posts/{id}`, work only for your main account. Passing another account's `account_id` to one of them returns `403 writes_main_account_only`. Reads work for every account in the list.
+
+The exceptions are the per-account settings surfaces, which accept any linked or shared `account_id`:
+
+- `PATCH /v1/context` and the `/v1/context/products` endpoints. On a share with `editor` permission these return `403 editor_restricted`: only the account owner can change what the AI knows about the account.
+- `PATCH /v1/queue-settings`. Editor-permission shares CAN change the posting schedule, which mirrors the SuperX app, where running the queue is what a delegate is there for.
 
 ## The degraded flag
 
-Account links are verified against the SuperX app on each request (with a short cache). If that verification is temporarily unavailable, the API fails closed rather than guessing:
+Account links and shares are verified against the SuperX app on each request (with a short cache). If that verification is temporarily unavailable, the API fails closed rather than guessing:
 
 - `GET /v1/accounts` returns only your main account and adds a top-level `"degraded": true` field. Retry shortly for the full list. When the flag is absent, the list is complete.
-- Requests for a linked `account_id` return `503 accounts_unavailable` until verification recovers. Your main account keeps working throughout.
+- Requests for any other `account_id` return `503 accounts_unavailable` until verification recovers. Your main account keeps working throughout.

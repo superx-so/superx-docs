@@ -47,7 +47,8 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 401 | `unauthorized` | Missing or malformed `Authorization` header |
 | 401 | `invalid_api_key` | Unknown or revoked key |
 | 403 | `insufficient_scope` | Read-only key used on a non-GET endpoint |
-| 403 | `writes_main_account_only` | Write attempted for a linked account |
+| 403 | `writes_main_account_only` | Write attempted for a linked or shared account (the `/v1/context` and `/v1/queue-settings` writes are exempt) |
+| 403 | `editor_restricted` | Context write on an account shared with you with `editor` permission; only the owner can change those settings (queue settings stay editable) |
 | 403 | `onboarding_required` | Finish onboarding in the SuperX app before scheduling posts |
 | 403 | `post_quota_exceeded` | Post quota for the billing period is used up |
 | 403 | (legacy string) | Subscription lapsed; see above |
@@ -59,11 +60,11 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 500 | `internal_error` | Unexpected server error |
 | 502 | `upstream_error` | A dependent SuperX service returned an unexpected response |
 | 503 | `media_not_configured` | Media storage is not configured on this server; try again later |
-| 503 | `accounts_unavailable` | Linked-account verification temporarily unavailable (main account still works) |
+| 503 | `accounts_unavailable` | Linked and shared account verification temporarily unavailable (main account still works) |
 | 503 | `upstream_unavailable` | The scheduling service is temporarily unreachable; safe to retry (reuse your `Idempotency-Key` on POST) |
 
 Retired code: `media_not_supported` (posts were text-only before 2026-07-09). Posts now take images via `POST /v1/media` plus `parts[].media`; a top-level `media` field on the create or update body returns `400 invalid_parameter` with a message pointing at `parts[].media`.
 
 ## Fail-closed behavior
 
-When the API cannot verify something, it refuses rather than guesses: unverifiable linked accounts return `503 accounts_unavailable` (never stale data), and an unreachable scheduling service returns `503 upstream_unavailable` (never a silent success).
+When the API cannot verify something, it refuses rather than guesses: unverifiable linked or shared accounts return `503 accounts_unavailable` (never stale data), and an unreachable scheduling service returns `503 upstream_unavailable` (never a silent success).

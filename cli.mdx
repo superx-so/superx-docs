@@ -70,6 +70,8 @@ The credentials file takes priority over the environment variable when both exis
 | `superx context:products` | List the account's products (used for product mentions in generated content) |
 | `superx context:products:set` | Add or edit one product by `--url` (creates it when new, cap 5) or `--id` |
 | `superx context:products:delete <id>` | Remove a product by id (reversible by re-adding the same url) |
+| `superx queue:get` | Show the account's posting schedule: predefined time slots and the timezone they run in |
+| `superx queue:set` | Change the posting schedule (`--slots-json` full replace, 0 = Sunday, `'[]'` clears; `--timezone` IANA name); changing the slots re-flows queued posts onto them |
 | `superx tags:list` | List your tags (id, name, color) |
 | `superx tags:create <name>` | Create a tag (`--color` picks a palette color, default blue) |
 | `superx tags:update <id>` | Rename and/or recolor a tag |

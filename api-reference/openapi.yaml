@@ -32,6 +32,7 @@ tags:
   - name: Scheduling
   - name: Tags
   - name: Context
+  - name: Queue
   - name: Articles
   - name: Meta
 
@@ -2171,9 +2172,11 @@ paths:
         `voice.favorite_creators` takes X usernames (with or without @, as
         bare strings or as the { screen_name } objects GET returns); SuperX
         resolves names and avatars. Unlike most write endpoints, context
-        writes accept `account_id` for any linked account. These settings
-        shape all future AI output for the account. Returns the full updated
-        document.
+        writes accept `account_id` for any linked or shared account; on a
+        share with `editor` permission they return `403 editor_restricted`,
+        because only the account owner may change what the AI knows. These
+        settings shape all future AI output for the account. Returns the full
+        updated document.
       parameters:
         - $ref: "#/components/parameters/AccountId"
       requestBody:
@@ -2270,7 +2273,7 @@ paths:
                     description: Present only when data is null (save succeeded, read-back failed).
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "403": { $ref: "#/components/responses/ContextWriteForbidden" }
         "404": { $ref: "#/components/responses/AccountNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -2340,7 +2343,7 @@ paths:
                     items: { $ref: "#/components/schemas/ContextProduct" }
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "403": { $ref: "#/components/responses/ContextWriteForbidden" }
         "404": { $ref: "#/components/responses/AccountNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -2404,7 +2407,7 @@ paths:
                   code: product_limit
                   message: "A maximum of 5 products is allowed. Remove one first."
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "403": { $ref: "#/components/responses/ContextWriteForbidden" }
         "404": { $ref: "#/components/responses/ProductNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -2448,8 +2451,156 @@ paths:
                   deleted: true
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "403": { $ref: "#/components/responses/ContextWriteForbidden" }
         "404": { $ref: "#/components/responses/ProductNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/queue-settings:
+    get:
+      tags: [Queue]
+      operationId: getQueueSettings
+      summary: Get queue settings
+      description: >-
+        The account's posting schedule: the predefined time slots the queue
+        fills and the timezone they run in (the Edit Queue modal in the
+        SuperX app). `slots` are `{ time, days }` entries with 0 = Sunday,
+        sorted by time; `slot_count` is the total number of time and day
+        pairs. `timezone_is_default` and `slots_are_default` are true when
+        the account has never set that value and SuperX is using its own
+        default. Works for your main account, a linked account, or an account
+        shared with you.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The queue settings.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/QueueSettings" }
+              example:
+                data:
+                  timezone: "Europe/London"
+                  timezone_is_default: false
+                  slots:
+                    - time: "09:00"
+                      days: [1, 2, 3, 4, 5]
+                    - time: "17:30"
+                      days: [1, 3, 5]
+                  slots_are_default: false
+                  slot_count: 8
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    patch:
+      tags: [Queue]
+      operationId: updateQueueSettings
+      summary: Update queue settings
+      description: >-
+        Changes the account's posting schedule. Send `slots`, `timezone`, or
+        both; only what you send changes. `slots` is a FULL REPLACE (max 50
+        entries, one per unique time, each with at least one weekday, 0 =
+        Sunday); `[]` clears every predefined slot and leaves the queue
+        all-custom.
+
+
+        Changing `slots` also RE-FLOWS the queue the way the app does: a
+        queued post sitting exactly on an occurrence of an old slot moves to
+        the matching new occurrence (Nth old to Nth new), so deliberate gaps
+        are preserved and hand-picked custom times stay put. Scheduled X
+        Articles and chained quote posts never move. Changing only `timezone`
+        never moves posts.
+
+
+        `reflow.bailed: true` means the settings were saved but the queue was
+        deliberately left untouched (a post had nowhere to land, or the move
+        set was too large); the response then carries a `note`. Retrying the
+        same request is safe and idempotent.
+
+
+        Changing the timezone and the slots in one call usually moves nothing,
+        because the existing posts were placed under the old timezone; to
+        re-flow them, change the timezone first, then send the slots in a
+        second call.
+
+
+        This is a per-account write: pass `account_id` for any linked or
+        shared account. Editor-permission shares CAN change queue settings.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slots:
+                  type: array
+                  maxItems: 50
+                  items: { $ref: "#/components/schemas/QueueSlot" }
+                  description: Full replace of the predefined posting slots. `[]` clears them all.
+                timezone:
+                  type: string
+                  maxLength: 64
+                  description: IANA timezone name the slot times run in, for example `Europe/London`.
+                account_id: { type: string }
+            example:
+              slots:
+                - time: "09:00"
+                  days: [1, 2, 3, 4, 5]
+                - time: "17:30"
+                  days: [1, 3, 5]
+              timezone: "Europe/London"
+      responses:
+        "200":
+          description: The updated settings plus what the reflow did.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/QueueSettings" }
+                  reflow: { $ref: "#/components/schemas/ReflowSummary" }
+                  note:
+                    type: string
+                    description: Present only when `reflow.bailed` is true.
+              example:
+                data:
+                  timezone: "Europe/London"
+                  timezone_is_default: false
+                  slots:
+                    - time: "09:00"
+                      days: [1, 2, 3, 4, 5]
+                    - time: "17:30"
+                      days: [1, 3, 5]
+                  slots_are_default: false
+                  slot_count: 8
+                reflow:
+                  moved: 3
+                  skipped: 0
+                  bailed: false
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/QueueWriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
         "502": { $ref: "#/components/responses/UpstreamError" }
@@ -3396,6 +3547,13 @@ components:
           nullable: true
         is_main:
           type: boolean
+        shared:
+          type: boolean
+          description: True when this account was shared with you by its owner (manual share or team share) rather than owned by you.
+        permission:
+          type: string
+          enum: [full, editor]
+          description: What you may change on this account. Your own accounts are always `full`. On an `editor` share you can change queue settings but not context settings.
 
     Me:
       type: object
@@ -4175,6 +4333,62 @@ components:
           format: date-time
           nullable: true
 
+    QueueSlot:
+      type: object
+      required: [time, days]
+      properties:
+        time:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          description: 24-hour local time in the account's queue timezone, `HH:MM`.
+          example: "09:00"
+        days:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+          description: Weekdays this slot runs on, 0 = Sunday. Sorted ascending on read; duplicates are deduped on write.
+          example: [1, 3, 5]
+
+    QueueSettings:
+      type: object
+      properties:
+        timezone:
+          type: string
+          description: IANA timezone the slot times run in.
+        timezone_is_default:
+          type: boolean
+          description: True when the account has never set a timezone and SuperX is using its default (UTC).
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/QueueSlot" }
+          description: The predefined posting slots, sorted by time.
+        slots_are_default:
+          type: boolean
+          description: True when the account has never set a schedule and SuperX is using its default slots. A stored empty list is explicit and reports false.
+        slot_count:
+          type: integer
+          description: Total number of time and day pairs across all slots.
+
+    ReflowSummary:
+      type: object
+      description: What changing the slots did to the already-queued posts.
+      properties:
+        moved:
+          type: integer
+          description: Queued posts retimed onto the new slots.
+        skipped:
+          type: integer
+          description: Posts that published or were deleted while the reflow ran; nothing was lost.
+        bailed:
+          type: boolean
+          description: >-
+            True when the settings were saved but the queue was deliberately
+            left untouched (a post had nowhere to land, or the move set was
+            too large). Retrying the same request is safe.
+
     Article:
       type: object
       properties:
@@ -4253,7 +4467,43 @@ components:
             error: "subscription_required: The SuperX API requires an active subscription"
 
     WriteForbidden:
-      description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+      description: Read-only key (`insufficient_scope`), a linked or shared account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - $ref: "#/components/schemas/LegacyErrorEnvelope"
+          example:
+            error:
+              code: insufficient_scope
+              message: "This API key is read-only. Create a key with the write scope to use this endpoint."
+
+    ContextWriteForbidden:
+      description: >-
+        Read-only key (`insufficient_scope`), an account shared with you with
+        `editor` permission (`editor_restricted` - only the owner can change
+        context settings; queue settings stay editable), or a lapsed
+        subscription (legacy string envelope). Context writes are per-account
+        and never return `writes_main_account_only`.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - $ref: "#/components/schemas/LegacyErrorEnvelope"
+          example:
+            error:
+              code: editor_restricted
+              message: "This account is shared with you with Editor permission. Only the account owner can change these settings."
+
+    QueueWriteForbidden:
+      description: >-
+        Read-only key (`insufficient_scope`) or a lapsed subscription (legacy
+        string envelope). Queue settings are a per-account write that any
+        linked or shared account can use, Editor-permission shares included,
+        so `writes_main_account_only` and `editor_restricted` never apply
+        here.
       content:
         application/json:
           schema:
