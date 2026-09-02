@@ -47,7 +47,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 401 | `unauthorized` | Missing or malformed `Authorization` header |
 | 401 | `invalid_api_key` | Unknown or revoked key |
 | 403 | `insufficient_scope` | Read-only key used on a non-GET endpoint |
-| 403 | `writes_main_account_only` | Write attempted for a linked or shared account (the `/v1/context` and `/v1/queue-settings` writes are exempt) |
+| 403 | `writes_main_account_only` | Write attempted for an account shared with you (shared accounts are read-only through the API), or a `/v1/tags` write for an account other than your main account. Your own linked accounts accept writes |
 | 403 | `editor_restricted` | Context write on an account shared with you with `editor` permission; only the owner can change those settings (queue settings stay editable) |
 | 403 | `onboarding_required` | Finish onboarding in the SuperX app before scheduling posts |
 | 403 | `post_quota_exceeded` | Post quota for the billing period is used up |

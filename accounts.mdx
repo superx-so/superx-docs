@@ -51,20 +51,24 @@ curl https://api.superx.so/v1/accounts \
 
 ## Selecting an account
 
-Endpoints that operate on one account accept an `account_id` parameter (query parameter on GET and DELETE, body field on POST). The value is the account `id` from `/v1/accounts`.
+Endpoints that operate on one account accept an `account_id` parameter. Some take it as a query parameter and some as a body field, so check the endpoint in the API reference for where it goes. The value is the account `id` from `/v1/accounts`.
 
 - Omitted: your **main account** is used.
 - An `id` from your account list: that account is used.
 - Anything else: `404 account_not_found`.
 
-## Writes are main-account-only, with two exceptions
+## Writes on your own accounts, reads on every account
 
-Most writes, including `POST /v1/scheduled-posts` and `DELETE /v1/scheduled-posts/{id}`, work only for your main account. Passing another account's `account_id` to one of them returns `403 writes_main_account_only`. Reads work for every account in the list.
+Writes work on any account you own: your main account and every account you linked to it. Pass that account's `account_id` on the write, or leave `account_id` out to use your main account. Reads work for every account in the list.
 
-The exceptions are the per-account settings surfaces, which accept any linked or shared `account_id`:
+Accounts other people shared with you are read-only through the API. A write that targets one returns `403 writes_main_account_only` (the code is unchanged for compatibility; the message explains the shared-account rule). Run those writes from the SuperX app instead.
 
-- `PATCH /v1/context` and the `/v1/context/products` endpoints. On a share with `editor` permission these return `403 editor_restricted`: only the account owner can change what the AI knows about the account.
-- `PATCH /v1/queue-settings`. Editor-permission shares CAN change the posting schedule, which mirrors the SuperX app, where running the queue is what a delegate is there for.
+Two surfaces have their own rules:
+
+- **Tags** are workspace-wide: one set of tags covers all your linked accounts, so `POST`, `PATCH` and `DELETE /v1/tags` accept only your main account and return `403 writes_main_account_only` for any other `account_id`. The tags you manage there apply everywhere.
+- **Context and queue settings** are per-account, and unlike other writes they also accept a shared `account_id`. `PATCH /v1/context` and the `/v1/context/products` endpoints return `403 editor_restricted` on a share with `editor` permission: only the account owner can change what the AI knows about the account. `PATCH /v1/queue-settings` stays open to editor-permission shares, which mirrors the SuperX app, where running the queue is what a delegate is there for.
+
+`POST /v1/media` takes no `account_id`. Uploads belong to you rather than to one X account, so an `object_key` can be attached to a post on any of your accounts.
 
 ## The degraded flag
 

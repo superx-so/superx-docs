@@ -39,15 +39,15 @@ The API / MCP / CLI tab in the SuperX app shows the ready-to-paste URL once, rig
 | `get_top_contacts` | The people who engage with the account most (90-day window) |
 | `get_contact_history` | One contact's reply history to the account |
 | `get_my_replies` | Replies the account has sent, newest or best-performing first |
-| `get_scheduled_posts` | Drafts and the scheduled queue on the main account |
+| `get_scheduled_posts` | Drafts and the scheduled queue for an account |
 | `find_inspiration` | Search a library of 50M+ high-performing posts by topic |
-| `schedule_post` | Create a draft or scheduled post or thread on the main account, with optional images, title, scratchpad notes, tags, and advanced settings (`autoRetweet`, `autoDelete`, `autoPlug`, `superFollowersOnly`) |
-| `delete_scheduled_post` | Delete a draft or scheduled post on the main account by id |
+| `schedule_post` | Create a draft or scheduled post or thread on your main account or a linked account, with optional images, title, scratchpad notes, tags, and advanced settings (`autoRetweet`, `autoDelete`, `autoPlug`, `superFollowersOnly`) |
+| `delete_scheduled_post` | Delete a draft or scheduled post by id |
 | `list_tags` | List the account's tags (id, name, color) |
 | `update_scheduled_post` | Edit a draft or scheduled post: text, images, title, scratchpad, tags, time, draft/scheduled status, or advanced settings |
 | `list_articles` | List long-form X Articles (title, status, times) |
 | `get_article` | One article with its full body as markdown |
-| `create_article` | Create an article draft on the main account (markdown body) |
+| `create_article` | Create an article draft (markdown body) on your main account or a linked account |
 | `update_article` | Edit an article's title, markdown body, or cover URL |
 | `schedule_article` | Schedule or reschedule an article (more than 2 minutes ahead) |
 | `publish_article` | Publish an article to X immediately (irreversible; needs X Premium) |
@@ -59,11 +59,11 @@ The API / MCP / CLI tab in the SuperX app shows the ready-to-paste URL once, rig
 | `remove_contact_list_member` | Remove a member from a contact list |
 | `list_signal_agents` | The account's signal agents (automated lead finders) and what they watch |
 | `get_signal_leads` | Leads the signal agents found, with match score, rationale, and provenance |
-| `create_signal_agent` | Create a signal agent on the main account; keywords and the destination list can be auto-generated |
+| `create_signal_agent` | Create a signal agent on your main account or a linked account; keywords and the destination list can be auto-generated |
 | `set_signal_agent_status` | Pause or resume a signal agent |
 | `delete_signal_agent` | Delete a signal agent (its saved leads and contact list stay untouched) |
 | `upload_media_from_url` | Download an image from a public https URL and store it for attaching to posts (JPG, PNG, WEBP up to 5MB; GIF up to 15MB) |
-| `list_plug_templates` | List the account's auto-plug reply templates (id, text, has_media) for `autoPlug.templateId` |
+| `list_plug_templates` | List an account's auto-plug reply templates (id, text, has_media) for `autoPlug.templateId`; pass the same `account` you are scheduling on |
 | `get_context` | The account's Context settings: profile description, interests, SuperX rules, reply settings, favorite creators, style guide (overrides + generated), products |
 | `update_context` | Update any subset of the Context settings; only passed params change, `null` clears, arrays fully replace |
 | `update_product` | Add or edit one product by id or url (creates by url when new, cap 5) |
@@ -73,11 +73,11 @@ The API / MCP / CLI tab in the SuperX app shows the ready-to-paste URL once, rig
 
 ## Scopes
 
-The eighteen read tools work with any API key. The write tools (`schedule_post`, `update_scheduled_post`, `delete_scheduled_post`, `create_article`, `update_article`, `schedule_article`, `publish_article`, `generate_article_cover`, `add_contact_list_member`, `remove_contact_list_member`, `create_signal_agent`, `set_signal_agent_status`, `delete_signal_agent`, `upload_media_from_url`, `update_context`, `update_product`, `delete_product`, and `update_queue_settings`) need a key with the **write** scope; with a read-only key they return an insufficient-scope error the model can relay. Post, article, contact-list, signal-agent, and media writes are limited to your main account; the context and queue-settings tools accept an `account` parameter for any linked or shared account. On an account shared with `editor` permission, `update_context`, `update_product`, and `delete_product` return an `editor_restricted` error while `update_queue_settings` works.
+The eighteen read tools work with any API key. The write tools (`schedule_post`, `update_scheduled_post`, `delete_scheduled_post`, `create_article`, `update_article`, `schedule_article`, `publish_article`, `generate_article_cover`, `add_contact_list_member`, `remove_contact_list_member`, `create_signal_agent`, `set_signal_agent_status`, `delete_signal_agent`, `upload_media_from_url`, `update_context`, `update_product`, `delete_product`, and `update_queue_settings`) need a key with the **write** scope; with a read-only key they return an insufficient-scope error the model can relay. The post, article, contact-list, and signal-agent write tools take an optional `account` parameter (an account id or `@handle`) and work on your main account or any account you have linked to it; omit `account` and the tool writes to your main account. Accounts other people share with you are read-only for those tools. `upload_media_from_url` takes no `account`: uploads belong to you rather than to one X account, so an `object_key` can be attached to a post on any of your accounts. Tags are workspace-wide, one set covering all your linked accounts. The context and queue-settings tools accept an `account` parameter for any linked or shared account. On an account shared with `editor` permission, `update_context`, `update_product`, and `delete_product` return an `editor_restricted` error while `update_queue_settings` works.
 
 To attach images to a post, call `upload_media_from_url` first, then pass the returned `object_key` in the per-part `media` field of `schedule_post` or `update_scheduled_post` (up to 4 images or exactly 1 GIF per part, optional `alt_text`). `upload_media_from_url` counts against a daily quota of 100 uploads per key. On `update_scheduled_post`, replacement posts sent without `media` remove the media those parts carried; re-include the existing `object_key`s to keep them. Video is not supported yet.
 
-Advanced settings on `schedule_post`: omit `autoRetweet`, `autoDelete`, `autoPlug`, or `superFollowersOnly` to inherit that setting's Default Post Settings value from the SuperX app; pass an object to override or `null` to turn a setting off for that post. Exactly five settings inherit this way (auto retweet, auto delete, auto plug, auto DM, Super Followers only); other composer defaults such as Bluesky cross-posting are never applied to API posts. `autoPlug.templateId` comes from `list_plug_templates`; unknown ids are rejected. On `update_scheduled_post` there is no inheritance: provided values override, omitted ones keep the post's current settings, `null` removes them. Auto DM always inherits the user's defaults and has no parameter; if a plan limit strips it, the `schedule_post` result carries `auto_dm_skipped: true`.
+Advanced settings on `schedule_post`: omit `autoRetweet`, `autoDelete`, `autoPlug`, or `superFollowersOnly` to inherit that setting's Default Post Settings value from the SuperX app; pass an object to override or `null` to turn a setting off for that post. Exactly five settings inherit this way (auto retweet, auto delete, auto plug, auto DM, Super Followers only); other composer defaults such as Bluesky cross-posting are never applied to API posts. `autoPlug.templateId` comes from `list_plug_templates` called with the same `account` you are posting on; unknown ids are rejected. On `update_scheduled_post` there is no inheritance: provided values override, omitted ones keep the post's current settings, `null` removes them. Auto DM always inherits the user's defaults and has no parameter; if a plan limit strips it, the `schedule_post` result carries `auto_dm_skipped: true`.
 
 Creating a signal agent returns immediately, but the agent finds leads over the following minutes and days; there is no synchronous search. Check `get_signal_leads` later for what it found.
 
