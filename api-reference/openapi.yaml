@@ -28,6 +28,20 @@ tags:
   - name: Audience
   - name: Contact Lists
   - name: Signals
+  - name: Engage
+    description: |
+      The account's saved Engage feeds and the candidate posts in them, for
+      an agent to score and a person to act on.
+
+      Read-only by design. These endpoints return feed candidates for a
+      person to review; replies are written and sent by a person in the
+      SuperX app, which is why there is no reply endpoint here. Sending
+      spammy, automated, or AI-generated replies that read as inauthentic
+      may get your X account suspended under X's inauthentic-behavior
+      rules and your SuperX account terminated. AI suggestions must be
+      reviewed and meaningfully edited before they are sent, and you are
+      solely responsible for what you post. Reply activity is logged and
+      may be audited.
   - name: Media
   - name: Scheduling
   - name: Tags
@@ -738,8 +752,10 @@ paths:
         or by `x_user_id` (numeric X user id already known to SuperX).
         Exactly one of the two. Naturally idempotent: adding someone already
         in the list returns 200 with the existing member and
-        `duplicate: true`, and writes nothing. Main account only; needs the
-        write scope. No `Idempotency-Key` support (none is needed).
+        `duplicate: true`, and writes nothing. Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
+        Needs the write scope. No `Idempotency-Key` support (none is
+        needed).
 
         Counts against a separate live-contact-enrichment rate limit (varies
         by plan), in addition to the normal write limits.
@@ -821,7 +837,9 @@ paths:
       description: |
         Remove a member from a list you created. Returns 204 with no body.
         Removing an already-removed member returns 404 `member_not_found`.
-        Main account only; needs the write scope.
+        Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
+        Needs the write scope.
       parameters:
         - name: id
           in: path
@@ -928,9 +946,7 @@ paths:
 
         Plan limits apply (403 `cap_reached`). Supports `Idempotency-Key`
         (max 64 chars): retries with the same key and body replay the
-        original response with `Idempotency-Replayed: true`. Main account
-        only in v1 (optional `account_id` in the body must be the main
-        account).
+        original response with `Idempotency-Replayed: true`. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -967,7 +983,7 @@ paths:
                   description: Contact list id (from `GET /v1/contact-lists`) that receives the leads. Omit to auto-create one.
                 account_id:
                   type: string
-                  description: Optional; must resolve to your main account.
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
             example:
               name: "Build in public founders"
               icp_description: "Indie founders building SaaS in public, sharing MRR and launch updates"
@@ -1034,7 +1050,7 @@ paths:
                   message: "icp_description is required (1-500 characters)"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), lapsed subscription (legacy string envelope), or the plan's agent limit is reached (`cap_reached`).
+          description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`; shared accounts are read-only through the API, your own linked accounts are not), lapsed subscription (legacy string envelope), or the plan's agent limit is reached (`cap_reached`).
           content:
             application/json:
               schema:
@@ -1072,7 +1088,8 @@ paths:
         is gone; point it at a new list in the SuperX app first). Other
         fields (name, ICP, precision, destination) are edited in the SuperX
         app. Naturally idempotent, so there is no `Idempotency-Key` support.
-        Main account only in v1.
+        Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -1122,7 +1139,8 @@ paths:
       description: |
         Delete an agent. The leads it already saved and its destination
         contact list stay untouched. Deleting the same id again returns 404
-        `agent_not_found`. Main account only in v1.
+        `agent_not_found`. Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -1246,6 +1264,217 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/engage/feeds:
+    get:
+      tags: [Engage]
+      operationId: listEngageFeeds
+      summary: List Engage feeds
+      description: |
+        The account's saved Engage feeds: the keyword and list feeds it
+        browses in the SuperX app's Engage tab. Feeds are created and edited
+        in the app; this endpoint only reads them. `fetch_units` is what one
+        fetch of that feed costs against the feed bucket (list feeds count as
+        up to 3, resolved exactly at fetch time). This endpoint never touches
+        the feed bucket itself.
+
+        Read-only by design. These endpoints return feed candidates for a
+        person to review; replies are written and sent by a person in the
+        SuperX app, which is why there is no reply endpoint here. Sending
+        spammy, automated, or AI-generated replies that read as inauthentic
+        may get your X account suspended under X's inauthentic-behavior
+        rules and your SuperX account terminated. AI suggestions must be
+        reviewed and meaningfully edited before they are sent, and you are
+        solely responsible for what you post. Reply activity is logged and
+        may be audited.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The account's saved feeds.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/EngageFeed" }
+              example:
+                data:
+                  - id: "feed_kw_1"
+                    name: "Bootstrapped SaaS"
+                    type: keywords
+                    keywords: ["bootstrapped saas", "indie hackers"]
+                    active: true
+                    fetch_units: 1
+                  - id: "feed_list_2"
+                    name: "Founders I follow"
+                    type: list
+                    list_id: "184"
+                    list_name: "Founders"
+                    active: false
+                    fetch_units: 3
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/engage/feeds/{id}/posts:
+    get:
+      tags: [Engage]
+      operationId: getEngageFeedPosts
+      summary: Get posts from an Engage feed
+      description: |
+        Candidate posts from one saved feed, with the author profile and
+        engagement metrics you need to score them for relevance, author size
+        and recency.
+
+        Paging works through `exclude_post_ids`, not page numbers: pass the
+        ids you already hold to get the next batch. There is no `pagination`
+        object; `has_more` tells you whether the feed had more to give.
+
+        `limit` applies to keyword feeds. List feeds ignore it upstream and
+        return one page per fetch: about 10 posts for a member list, 20 to 25
+        for an imported X list (`limit` only trims that page). The size
+        follows the list's resolved kind rather than the feed's `type`, so a
+        `list` feed backed by a pure imported X list pages like an `x_list`
+        feed. Page list feeds with `exclude_post_ids` instead of raising
+        `limit`.
+
+        Each fetch charges the plan's feed bucket, and a list feed that
+        rotates its members costs 3 units instead of 1. On a keyword feed a
+        50-post page costs exactly the same as a 20-post page, so ask for
+        `limit=50` a few times a day and filter on your side rather than
+        polling; feeds refresh over hours, so fetching more often than
+        hourly returns the same posts. Feed fetches also run a few at a time
+        across all API users; on a `429` with `Retry-After`, wait and retry.
+        The bucket is charged before the fetch, so a fetch that then fails
+        upstream still costs its units.
+
+        Posts returned here count as seen and are demoted in later fetches.
+        On a list feed, paging with `exclude_post_ids` also advances, and
+        `fresh=true` resets, the same list cursor the SuperX app uses, so
+        both move the position a person browsing that feed in the app sees.
+        A plain fetch after a pause resets that cursor too, matching the
+        app's own session timeout.
+
+        Read-only by design. These endpoints return feed candidates for a
+        person to review; replies are written and sent by a person in the
+        SuperX app, which is why there is no reply endpoint here. Sending
+        spammy, automated, or AI-generated replies that read as inauthentic
+        may get your X account suspended under X's inauthentic-behavior
+        rules and your SuperX account terminated. AI suggestions must be
+        reviewed and meaningfully edited before they are sent, and you are
+        solely responsible for what you post. Reply activity is logged and
+        may be audited.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Feed id from `GET /v1/engage/feeds`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+        - name: limit
+          in: query
+          description: >-
+            Posts to return, up to 50. Default 20. Applies to keyword feeds;
+            list feeds return one page per fetch whatever you ask for, about
+            10 posts for a member list and 20 to 25 for an imported X list.
+            On a keyword feed a big page costs the same as a small one.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: mode
+          in: query
+          description: Ranking for keyword feeds. `top` (default) blends quality and relevance, `latest` is pure recency.
+          schema:
+            type: string
+            enum: [top, latest]
+            default: top
+        - name: fresh
+          in: query
+          description: Skip the short-lived result cache and refetch. Default false.
+          schema:
+            type: boolean
+            default: false
+        - name: include_replied
+          in: query
+          description: "Keep posts the account already replied to, flagged with `replied: true`. Default false removes them."
+          schema:
+            type: boolean
+            default: false
+        - name: exclude_post_ids
+          in: query
+          description: Comma-separated post ids to leave out, up to 100. This is how you page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Candidate posts from the feed.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/EngageFeedPost" }
+                  has_more:
+                    type: boolean
+                  feed:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      name: { type: string }
+                      type:
+                        type: string
+                        enum: [keywords, list, x_list]
+              example:
+                data:
+                  - id: "1941300000000000002"
+                    text: "We doubled activation by rewriting onboarding emails."
+                    created_at: "2026-09-01T09:41:00.000Z"
+                    url: "https://x.com/founderhandle/status/1941300000000000002"
+                    author:
+                      id: "944883311"
+                      username: "founderhandle"
+                      name: "Founder Name"
+                      description: "Bootstrapping a SaaS in public."
+                      followers_count: 4210
+                      following_count: 388
+                      verified: true
+                    metrics:
+                      likes: 142
+                      replies: 18
+                      reposts: 9
+                      bookmarks: 27
+                      impressions: 21400
+                    media: []
+                has_more: true
+                feed: { id: "feed_kw_1", name: "Bootstrapped SaaS", type: keywords }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/FeedNotFound" }
+        "429": { $ref: "#/components/responses/FeedRateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
   /v1/media:
     post:
@@ -1449,7 +1678,8 @@ paths:
       summary: Create a draft or scheduled post
       description: |
         Creates a post: a draft when `scheduled_for` is omitted, a scheduled
-        post otherwise. Main account only in v1. Supports the
+        post otherwise. Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only. Supports the
         `Idempotency-Key` header for safe retries (see the Idempotency guide).
         Successful creation returns `201`.
 
@@ -1580,7 +1810,7 @@ paths:
                   description: Post to Super Followers only. Omit to inherit your defaults.
                 account_id:
                   type: string
-                  description: Must be your main account (or omitted). Linked accounts return `403 writes_main_account_only`.
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
             examples:
               single:
                 summary: One scheduled post
@@ -1729,8 +1959,9 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
           description: |
-            Read-only key (`insufficient_scope`), linked account
-            (`writes_main_account_only`), onboarding not finished
+            Read-only key (`insufficient_scope`), an account shared with you
+            (`writes_main_account_only`; shared accounts are read-only through
+            the API, your own linked accounts are not), onboarding not finished
             (`onboarding_required`), post quota used up
             (`post_quota_exceeded`), or a lapsed subscription (legacy string
             envelope).
@@ -1743,7 +1974,7 @@ paths:
               example:
                 error:
                   code: writes_main_account_only
-                  message: "The API can only create posts for your main account for now."
+                  message: "Accounts shared with you are read-only through the API. Writes work on your own main and linked accounts."
         "404": { $ref: "#/components/responses/AccountNotFound" }
         "409":
           description: The Idempotency-Key was already used with a different request body.
@@ -1767,7 +1998,8 @@ paths:
       description: |
         Partial update: only the fields you send change; everything else on
         the post (including fields the API does not expose) is preserved.
-        Main account only in v1.
+        Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
 
         Status transitions are explicit: sending `scheduled_for` alone never
         schedules a draft. Set `status` to `"scheduled"` to promote (needs a
@@ -1895,7 +2127,7 @@ paths:
                   description: Post to Super Followers only. Omit to keep the current setting.
                 account_id:
                   type: string
-                  description: Must be your main account (or omitted).
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
             examples:
               retitle:
                 summary: Change only the title
@@ -1957,7 +2189,7 @@ paths:
                   message: "Unknown object_key: u123/api_..._chart.png. Upload media first via POST /v1/media."
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`; shared accounts are read-only through the API, your own linked accounts are not), or a lapsed subscription (legacy string envelope).
           content:
             application/json:
               schema:
@@ -1993,7 +2225,7 @@ paths:
       tags: [Scheduling]
       operationId: deleteScheduledPost
       summary: Delete a draft or scheduled post
-      description: Deletes the post and refunds any quota it held. Main account only in v1.
+      description: Deletes the post and refunds any quota it held. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -2027,7 +2259,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`; shared accounts are read-only through the API, your own linked accounts are not), or a lapsed subscription (legacy string envelope).
           content:
             application/json:
               schema:
@@ -2642,7 +2874,7 @@ paths:
       tags: [Tags]
       operationId: createTag
       summary: Create a tag
-      description: Names are unique per workspace. `color` is a palette name the SuperX app renders (rose, amber, lime, emerald, teal, cyan, blue, indigo, violet, fuchsia, slate, stone); it defaults to `blue`. Main account only in v1.
+      description: Names are unique per workspace. `color` is a palette name the SuperX app renders (rose, amber, lime, emerald, teal, cyan, blue, indigo, violet, fuchsia, slate, stone); it defaults to `blue`. Tags are workspace-wide, so this is a main-account write and any other `account_id` returns `403 writes_main_account_only`.
       requestBody:
         required: true
         content:
@@ -2660,6 +2892,9 @@ paths:
                   minLength: 1
                   maxLength: 32
                   default: blue
+                account_id:
+                  type: string
+                  description: Only your main account (the default when omitted). Tags are workspace-wide, so any other account you own returns `403 writes_main_account_only`.
             example:
               name: "Launch week"
               color: "amber"
@@ -2685,7 +2920,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          description: Read-only key (`insufficient_scope`), an `account_id` other than your main account (`writes_main_account_only`; tags are workspace-wide), or a lapsed subscription (legacy string envelope).
           content:
             application/json:
               schema:
@@ -2714,7 +2949,7 @@ paths:
       tags: [Tags]
       operationId: updateTag
       summary: Rename or recolor a tag
-      description: Provide `name` and/or `color`. Main account only in v1.
+      description: Provide `name` and/or `color`. Tags are workspace-wide, so this is a main-account write and any other `account_id` returns `403 writes_main_account_only`.
       parameters:
         - name: id
           in: path
@@ -2736,6 +2971,9 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 32
+                account_id:
+                  type: string
+                  description: Only your main account (the default when omitted). Tags are workspace-wide, so any other account you own returns `403 writes_main_account_only`.
             example:
               name: "Launch"
               color: "violet"
@@ -2761,7 +2999,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          description: Read-only key (`insufficient_scope`), an `account_id` other than your main account (`writes_main_account_only`; tags are workspace-wide), or a lapsed subscription (legacy string envelope).
           content:
             application/json:
               schema:
@@ -2797,13 +3035,14 @@ paths:
       tags: [Tags]
       operationId: deleteTag
       summary: Delete a tag
-      description: Deletes the tag and removes it from every draft and scheduled post that carries it (the posts themselves are untouched). Main account only in v1.
+      description: Deletes the tag and removes it from every draft and scheduled post that carries it (the posts themselves are untouched). Tags are workspace-wide, so this is a main-account write and any other `account_id` returns `403 writes_main_account_only`.
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/AccountId"
       responses:
         "204":
           description: Deleted. No body.
@@ -2813,7 +3052,7 @@ paths:
             X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+          description: Read-only key (`insufficient_scope`), an `account_id` other than your main account (`writes_main_account_only`; tags are workspace-wide), or a lapsed subscription (legacy string envelope).
           content:
             application/json:
               schema:
@@ -2895,7 +3134,7 @@ paths:
       description: |
         Creates a draft. `content_markdown` (max 400KB) converts to the article's stored rich-text form: headings (h1-h3), bullet and numbered lists (one nesting level), blockquotes, bold/italic/strikethrough, links, images by http(s) URL, and bare X post URLs alone on a line as embeds. Constructs the format cannot express (code blocks, horizontal rules) degrade to plain text and are reported in a `warnings` array. Non-http(s) image or link URLs are rejected with 400.
 
-        Supports `Idempotency-Key` (max 64 chars): retries with the same key and body replay the original response with `Idempotency-Replayed: true`. Main account only in v1.
+        Supports `Idempotency-Key` (max 64 chars): retries with the same key and body replay the original response with `Idempotency-Replayed: true`. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2915,7 +3154,7 @@ paths:
                   description: Article body as markdown. Omit for an empty draft.
                 account_id:
                   type: string
-                  description: Must be the main account (writes are main-account-only).
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
             example:
               title: "How we grew to 10k followers"
               content_markdown: "# The system\n\nConsistency beats intensity.\n\n- Post daily\n- Reply to your top contacts"
@@ -2987,7 +3226,7 @@ paths:
       tags: [Articles]
       operationId: updateArticle
       summary: Edit an article
-      description: Partial edit. Only provided fields change. `content_markdown` replaces the WHOLE body. `cover_url` attaches an http(s) image as the cover; `null` removes the cover. Main account only in v1.
+      description: Partial edit. Only provided fields change. `content_markdown` replaces the WHOLE body. `cover_url` attaches an http(s) image as the cover; `null` removes the cover. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -3042,12 +3281,13 @@ paths:
       tags: [Articles]
       operationId: deleteArticle
       summary: Delete an article
-      description: Deletes the article. Scheduled articles refund the quota their scheduling deducted. Main account only in v1.
+      description: Deletes the article. Scheduled articles refund the quota their scheduling deducted. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/AccountId"
       responses:
         "204":
           description: Deleted. No body.
@@ -3124,7 +3364,7 @@ paths:
                   code: post_quota_exceeded
                   message: "Post quota exceeded for the current billing period."
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), missing X Premium (`x_premium_required`), a connected account needing re-authorization (`reauth_required`), or a lapsed subscription.
+          description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`; shared accounts are read-only through the API, your own linked accounts are not), missing X Premium (`x_premium_required`), a connected account needing re-authorization (`reauth_required`), or a lapsed subscription.
           content:
             application/json:
               schema:
@@ -3171,7 +3411,7 @@ paths:
       operationId: scheduleArticle
       summary: Schedule or reschedule an article
       description: |
-        Schedules the article for `scheduled_for` (UTC ISO-8601 with an explicit Z or offset, more than 2 minutes in the future; no maximum horizon). Scheduling a draft deducts post quota, refunded on unschedule or delete. Rescheduling an already scheduled article is a free time-only move. Supports `Idempotency-Key`. Main account only in v1.
+        Schedules the article for `scheduled_for` (UTC ISO-8601 with an explicit Z or offset, more than 2 minutes in the future; no maximum horizon). Scheduling a draft deducts post quota, refunded on unschedule or delete. Rescheduling an already scheduled article is a free time-only move. Supports `Idempotency-Key`. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -3236,7 +3476,7 @@ paths:
       tags: [Articles]
       operationId: unscheduleArticle
       summary: Unschedule an article
-      description: Pulls a scheduled article back to draft and refunds exactly the quota its scheduling deducted. Main account only in v1.
+      description: Pulls a scheduled article back to draft and refunds exactly the quota its scheduling deducted. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -3287,7 +3527,7 @@ paths:
       description: |
         Generates a 2.5:1 cover image from the article's TITLE (a title is required) and, by default, attaches it as the article's cover. `attach: false` generates without touching the current cover; attach later via PATCH `cover_url`. `style_text` (max 8000 chars) steers the artwork.
 
-        Slow (60-100 seconds) and paid: spends AI credits against daily and monthly caps, all enforced server-side. 429 responses carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month` counters. Supports `Idempotency-Key`, recommended. Main account only in v1.
+        Slow (60-100 seconds) and paid: spends AI credits against daily and monthly caps, all enforced server-side. 429 responses carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month` counters. Supports `Idempotency-Key`, recommended. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -3344,7 +3584,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
-          description: Read-only key (`insufficient_scope`), linked account (`writes_main_account_only`), cover generation disabled (`feature_disabled`), or a lapsed subscription.
+          description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`; shared accounts are read-only through the API, your own linked accounts are not), cover generation disabled (`feature_disabled`), or a lapsed subscription.
           content:
             application/json:
               schema:
@@ -4089,6 +4329,117 @@ components:
               type: string
               nullable: true
 
+    EngageFeed:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Pass this to GET /v1/engage/feeds/{id}/posts.
+        name:
+          type: string
+        type:
+          type: string
+          enum: [keywords, list, x_list]
+          description: keywords = a saved keyword search, list = a SuperX contact list, x_list = an X list.
+        keywords:
+          type: array
+          description: Keyword feeds only.
+          items:
+            type: string
+        list_id:
+          type: string
+          description: Contact list id, list feeds only.
+        x_list_id:
+          type: string
+          description: X list id, x_list feeds only.
+        list_name:
+          type: string
+          description: List feeds only.
+        active:
+          type: boolean
+          description: Whether this is the feed currently selected in the app.
+        fetch_units:
+          type: integer
+          description: >-
+            Feed-bucket units one fetch of this feed costs. List feeds count
+            as up to 3 (a pure imported X list resolves to 1 at fetch time);
+            everything else is 1.
+
+    EngageFeedPostAuthor:
+      type: object
+      nullable: true
+      properties:
+        id:
+          type: string
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+          description: The author's X bio. Not always present on list feeds.
+        followers_count:
+          type: integer
+          nullable: true
+        following_count:
+          type: integer
+          nullable: true
+        verified:
+          type: boolean
+
+    EngageFeedPost:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+          description: Post text with shortened links expanded.
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        url:
+          type: string
+        author:
+          $ref: "#/components/schemas/EngageFeedPostAuthor"
+        metrics:
+          type: object
+          properties:
+            likes:
+              type: integer
+            replies:
+              type: integer
+            reposts:
+              type: integer
+            bookmarks:
+              type: integer
+            impressions:
+              type: integer
+        media:
+          type: array
+          description: Image URLs attached to the post, best effort.
+          items:
+            type: string
+        quoted_post:
+          type: object
+          description: Present only when the post quotes another one.
+          properties:
+            id:
+              type: string
+            text:
+              type: string
+            author_username:
+              type: string
+              nullable: true
+        replied:
+          type: boolean
+          description: Present only when include_replied=true. True when the account already replied to this post.
+
     ScheduledPost:
       type: object
       properties:
@@ -4467,7 +4818,7 @@ components:
             error: "subscription_required: The SuperX API requires an active subscription"
 
     WriteForbidden:
-      description: Read-only key (`insufficient_scope`), a linked or shared account (`writes_main_account_only`), or a lapsed subscription (legacy string envelope).
+      description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`; shared accounts are read-only through the API, your own linked accounts are not), or a lapsed subscription (legacy string envelope).
       content:
         application/json:
           schema:
@@ -4623,6 +4974,42 @@ components:
               code: rate_limited
               message: "Rate limit exceeded for the Pro plan (30 requests/min). Upgrade for higher limits."
               retry_after: 42
+
+    FeedNotFound:
+      description: >-
+        The feed id is not one of your Engage feeds (`feed_not_found`), the
+        feed points at a contact list that no longer exists
+        (`list_not_found`), or account_id is not one of your accounts
+        (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: feed_not_found
+              message: "No Engage feed with that id belongs to this account."
+
+    FeedRateLimited:
+      description: >-
+        The plan's feed-fetch allowance is spent, or feed fetches are busy
+        across all API users right now. Honor Retry-After. No feed units are
+        charged when the request is rejected; the request still consumed one
+        unit of the ordinary read budget, and the X-RateLimit-* headers on
+        this response describe that read bucket, not the feed bucket.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: rate_limited
+              message: "Rate limit exceeded for the Pro plan (5 feed fetches/min). Upgrade for higher limits. A list feed that rotates its members costs 3 fetches. Retry after 27 seconds."
+              retry_after: 27
+              remaining_day: 41
 
     InternalError:
       description: Unexpected server error. May also use the legacy string envelope when subscription verification fails.
