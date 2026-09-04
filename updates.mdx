@@ -3,6 +3,17 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-04
+
+Inspiration search now ranks results by relevance:
+
+- `GET /v1/inspiration`: results come back relevance-ranked, strongest matches first and more loosely related posts after, instead of a fresh mix on every call. Weak and promotional matches are filtered out, so a page can return fewer posts than `limit`
+- `has_more` no longer requires a full page. It now means more library pages may exist (pages run 1 to 7), so keep paginating while it is true even when a page comes back short
+- `sort=relevant` is still the default and is the relevance-ranked order. The other sort values are unchanged
+- CLI: `superx inspiration:search` inherits the same ranking, and a page may return fewer than `--limit` posts
+- MCP: `find_inspiration` returns relevance-ranked results, strongest first, and may return fewer than `limit`
+- Webapp: the Inspiration Posts tab leads with the closest matches to what you searched, with off-topic and promotional posts filtered out
+
 ## 2026-07-09
 
 Images on posts:

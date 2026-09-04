@@ -399,9 +399,11 @@ paths:
         results for structures, hooks and angles to remix, never to copy.
 
         The library is user-level, so there is no `account_id` parameter.
-        Results are intentionally varied: the same query returns a different
-        mix on each call. Pagination is heuristic; `has_more` means a full
-        page came back with library pages left (pages run 1 to 7).
+        Results are relevance-ranked: the strongest matches come first, more
+        loosely related posts after. A page can return fewer posts than
+        `limit` once weak and promotional matches are removed. Pagination is
+        heuristic; `has_more` means more library pages may exist (pages run
+        1 to 7).
 
         Each result carries an `outlier_score`: the post's engagement rate vs
         the expected rate for its author's follower tier, x10 (10 = expected,
@@ -418,6 +420,9 @@ paths:
             maxLength: 200
         - name: sort
           in: query
+          description: |
+            Result ordering. `relevant` (default) is relevance-ranked, the
+            strongest matches first.
           schema:
             type: string
             enum: [relevant, recent, likes, reposts, impressions, outlier]
@@ -470,7 +475,7 @@ paths:
             example: "crypto,politics"
         - name: limit
           in: query
-          description: Page size, 1 to 50.
+          description: Maximum posts per page, 1 to 50. Pages can be shorter after filtering.
           schema:
             type: integer
             minimum: 1
