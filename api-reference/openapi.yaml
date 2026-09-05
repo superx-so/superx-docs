@@ -277,6 +277,204 @@ paths:
         "500": { $ref: "#/components/responses/InternalError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
+  /v1/posts/draft:
+    post:
+      tags: [Scheduling]
+      operationId: draftPost
+      summary: Write post drafts in your voice
+      description: |
+        Writes post drafts from a brief, in the account's own voice. Nothing
+        is scheduled and nothing is stored: the response is text for you to
+        review and edit, then send to `POST /v1/scheduled-posts` to save a
+        draft or schedule it.
+
+        Every draft copies the SHAPE of a proven post, never its content.
+        Pass one in `mirror` (the text of a post from `GET /v1/inspiration`
+        works well), or leave `mirror` out and a proven shape is picked for
+        you, optionally biased toward a `collection`.
+
+        Voice: `mine` (default) writes as the account, `creator` writes in a
+        creator's style, and `hybrid` keeps the account's substance with the
+        creator's flavor. The creator's style guide is prepared in the
+        background the first time you name them; that first call returns
+        `409 creator_style_pending` and the retry a minute later succeeds.
+
+        Costs AI credits per draft (drafts that fail are refunded), and a
+        call takes roughly 20 to 40 seconds. `Idempotency-Key` is NOT
+        supported: generation is not idempotent, and a replay would produce
+        different text anyway.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [brief]
+              properties:
+                brief:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: "What the post should say: the data, angle, or notes to write from."
+                count:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                  default: 1
+                  description: How many drafts to write. Each one costs credits.
+                voice:
+                  type: string
+                  enum: [mine, creator, hybrid]
+                  default: mine
+                  description: Whose voice to write in.
+                creator:
+                  type: string
+                  description: X handle to borrow style from, for example `@naval`. Required when `voice` is `creator` or `hybrid`, rejected when `voice` is `mine`.
+                mirror:
+                  type: string
+                  minLength: 50
+                  maxLength: 1500
+                  description: "Plain text of a proven post whose shape to copy. Only the form is reused, never the content. Pick a mirror with room for your data: a two-line aphorism squeezes the facts out. Omit to have a shape picked for you."
+                collection:
+                  type: string
+                  description: "Format collection id to bias the picked shape toward, for example `numbered_list` or `contrarian_take`. Used only when `mirror` is omitted; an id that is unknown or not usable as a mirror fails with `400 invalid_collection`, which lists the ids that do work."
+                instructions:
+                  type: string
+                  maxLength: 500
+                  description: Extra style instructions for this batch.
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            examples:
+              simple:
+                summary: One draft in your own voice
+                value:
+                  brief: "We cut churn from 6.2% to 3.8% by replacing the onboarding video with a 3-step checklist."
+              mirrored:
+                summary: Three drafts copying a proven post's shape
+                value:
+                  brief: "We shipped a public API. 40 developers signed up in 48 hours."
+                  count: 3
+                  mirror: "Most people think they need more discipline.\n\nThey do not.\n\nThey need a smaller first step. Discipline is what you build after the habit already exists, not before."
+              creator_voice:
+                summary: Your substance, a creator's flavor
+                value:
+                  brief: "Removing our free plan tripled conversion."
+                  voice: "hybrid"
+                  creator: "@naval"
+      responses:
+        "201":
+          description: The generated drafts. Nothing was scheduled or stored.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      drafts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            text:
+                              type: string
+                              description: The draft post text. Send it to `POST /v1/scheduled-posts` when the user is happy with it.
+                            mirrored:
+                              type: object
+                              nullable: true
+                              description: Which proven shape this draft copied, or `null` when the draft copied no shape (no usable one was found and it was written from the brief alone).
+                              properties:
+                                source:
+                                  type: string
+                                  enum: [you, collection]
+                                  description: "`you` when you passed `mirror`, `collection` when a shape was picked for you."
+                                collection:
+                                  type: string
+                                  description: Format collection the shape came from. Absent when `source` is `you`.
+                                reference_id:
+                                  type: string
+                                  description: Id of the post whose shape was copied. Absent when `source` is `you`.
+                      credits_charged:
+                        type: integer
+                        description: AI credits kept for this call. Drafts that failed are refunded and are not counted here.
+              example:
+                data:
+                  drafts:
+                    - text: "Most founders think they need better retention strategies.\n\nThey do not.\n\nThey need simpler onboarding."
+                      mirrored: { source: "you" }
+                  credits_charged: 3
+        "400":
+          description: >-
+            Invalid or missing field (`invalid_parameter`), a `mirror` that
+            cannot be used as a shape (`mirror_rejected`, with the reason),
+            an unknown or unusable `collection` (`invalid_collection`), a
+            `creator` SuperX has no posts for (`unknown_creator`), or a
+            creator whose style guide could not be built at all
+            (`creator_style_unavailable`, terminal: do not retry).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: mirror_rejected
+                  message: "That post cannot be used as a mirror (url). Pass the plain text of a substantial post with no links and no engagement bait."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: >-
+            Read-only key (`insufficient_scope`), an account shared with you
+            (`writes_main_account_only`), or a lapsed subscription (legacy
+            string envelope).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: writes_main_account_only
+                  message: "Accounts shared with you are read-only through the API. Drafting works on your own main and linked accounts."
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "409":
+          description: >-
+            The creator's style guide is being prepared
+            (`creator_style_pending`). It is ready in about a minute; retry
+            the same request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: creator_style_pending
+                  message: "Style guide for @naval is being prepared, retry in about a minute."
+        "429":
+          description: >-
+            Rate limited (`rate_limited`, honor `Retry-After`) or the AI
+            credit pool is used up (`ai_credits_exhausted`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: ai_credits_exhausted
+                  message: "Not enough AI credits to draft these posts."
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502":
+          description: Every draft failed to generate (`generation_failed`). All credits for the call were refunded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: generation_failed
+                  message: "Drafting failed and no credits were spent. Try again shortly."
+
   /v1/replies:
     get:
       tags: [Content]

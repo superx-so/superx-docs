@@ -44,6 +44,10 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 400 | `fetch_failed` | The MCP `upload_media_from_url` download failed, timed out, or followed too many redirects |
 | 400 | `url_not_allowed` | The MCP `upload_media_from_url` URL is not plain public https (private or reserved addresses, embedded credentials, and non-https schemes are rejected) |
 | 400 | `range_too_large` | Analytics range beyond the 366-day maximum |
+| 400 | `mirror_rejected` | The `mirror` post on `POST /v1/posts/draft` cannot be used as a shape (too thin, carries a link, or is engagement bait); the message names the reason |
+| 400 | `invalid_collection` | Unknown or unusable `collection` id on `POST /v1/posts/draft`; the message lists the ids that work |
+| 400 | `unknown_creator` | SuperX has no posts for that `creator` handle, so it cannot learn the style |
+| 400 | `creator_style_unavailable` | A style guide for that creator could not be built (not enough public posts). Terminal: retrying will not help |
 | 401 | `unauthorized` | Missing or malformed `Authorization` header |
 | 401 | `invalid_api_key` | Unknown or revoked key |
 | 403 | `insufficient_scope` | Read-only key used on a non-GET endpoint |
@@ -55,10 +59,13 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 404 | `account_not_found` | `account_id` is not one of your accounts |
 | 404 | `not_found` | No such resource for this account (for example a scheduled post id) |
 | 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
+| 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
+| 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting) |
 | 500 | `internal_error` | Unexpected server error |
 | 502 | `upstream_error` | A dependent SuperX service returned an unexpected response |
+| 502 | `generation_failed` | Every draft in a `POST /v1/posts/draft` call failed to generate; all credits for the call were refunded |
 | 503 | `media_not_configured` | Media storage is not configured on this server; try again later |
 | 503 | `accounts_unavailable` | Linked and shared account verification temporarily unavailable (main account still works) |
 | 503 | `upstream_unavailable` | The scheduling service is temporarily unreachable; safe to retry (reuse your `Idempotency-Key` on POST) |

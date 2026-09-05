@@ -5,11 +5,27 @@ description: "API changes, newest first."
 
 ## 2026-09-05
 
-Inspiration results now link back to the post on X:
+Write post drafts in your own voice, and inspiration results now link back to the post on X:
 
+**API**
+
+- `POST /v1/posts/draft`: turn a `brief` into 1 to 3 post drafts written in the account's voice. Nothing is scheduled and nothing is stored: you get text back, review and edit it, then send it to `POST /v1/scheduled-posts`
+- Every draft copies the SHAPE of a proven post, never its content. Pass one in `mirror` (50 to 1500 characters, for example the text of a post from `GET /v1/inspiration`), or leave `mirror` out and a shape is picked for you, optionally biased with `collection`. Pick a mirror with room for your data: a two-line aphorism squeezes the facts out. `mirrored` on a draft is `null` when it ended up copying no shape
+- `voice` is `mine` (default), `creator`, or `hybrid`; the last two need a `creator` handle. The first call naming a new creator returns `409 creator_style_pending` while their style guide is prepared, and the retry a minute later succeeds
+- Optional `instructions` (max 500 characters) steer the batch, and `account_id` picks a linked account. Accounts shared with you are read-only
+- Costs AI credits per draft, refunded for any draft that fails, and takes roughly 20 to 40 seconds. `Idempotency-Key` is not supported: generation is not idempotent
+- New error codes: `mirror_rejected`, `invalid_collection`, `unknown_creator`, `creator_style_unavailable` (400, terminal), `creator_style_pending` (409), `generation_failed` (502). A spent credit pool returns `429 ai_credits_exhausted`, the same code cover generation uses
 - `GET /v1/inspiration`: every post carries `url`, the link to the post on X, alongside its `id`
-- MCP: `find_inspiration` posts now carry `id` and `url`
-- CLI: `superx inspiration:search` inherits `url` on every post
+
+**MCP**
+
+- New `draft_post` tool (thirty-nine tools total): same drafting behavior, and it saves nothing, so follow it with `schedule_post` once the user is happy with the text
+- `find_inspiration` posts now carry `id` and `url`
+
+**CLI**
+
+- `superx posts:draft --brief "..."` with `--count`, `--voice`, `--creator`, `--mirror`, `--collection`, `--instructions`, `--account`
+- `superx inspiration:search` inherits `url` on every post
 
 ## 2026-09-04
 
