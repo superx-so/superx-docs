@@ -464,22 +464,44 @@ paths:
                   message: "Style guide for @naval is being prepared, retry in about a minute."
         "429":
           description: >-
-            Rate limited (`rate_limited`, honor `Retry-After`) or the AI
-            credit pool is used up (`ai_credits_exhausted`, with the credit
-            counters).
+            Rate limited (`rate_limited`, honor `Retry-After`), the AI credit
+            pool is used up (`ai_credits_exhausted`, with the credit
+            counters), or the plan's daily cap on drafting runs is spent
+            (`ai_action_limited`, honor `Retry-After`). No plan caps drafting
+            today; the shape is documented so a future cap cannot surprise a
+            client.
           headers:
-            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
-            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+            Retry-After:
+              description: >-
+                Seconds to wait before retrying. Sent on every flavour of this
+                429.
+              schema:
+                type: integer
+            X-Credits-Remaining:
+              description: >-
+                Credits left in the pool. Sent only on
+                `ai_credits_exhausted`, never on `rate_limited` or
+                `ai_action_limited`, which do not consult the pool.
+              schema:
+                type: integer
+            X-Credits-Reset:
+              description: >-
+                Unix timestamp (seconds) when the pool refills. Sent only on
+                `ai_credits_exhausted`, on the same terms as
+                `X-Credits-Remaining`.
+              schema:
+                type: integer
           content:
             application/json:
               schema:
                 anyOf:
                   - $ref: "#/components/schemas/CreditExhaustedError"
+                  - $ref: "#/components/schemas/ActionLimitedError"
                   - $ref: "#/components/schemas/ErrorEnvelope"
               example:
                 error:
                   code: ai_credits_exhausted
-                  message: "Not enough AI credits to draft these posts."
+                  message: "Not enough AI credits. Resets in 5 hours."
                   credits_required: 9
                   credits_remaining: 2
                   reset_at: 1790812800
@@ -4031,6 +4053,30 @@ components:
               type: integer
               nullable: true
               description: Unix timestamp (seconds) when the pool refills.
+
+    ActionLimitedError:
+      type: object
+      required: [error]
+      description: |
+        The `429 ai_action_limited` body: a per-day cap on how many times one
+        expensive action can run on your plan, counted separately from the
+        credit pool and from the request rate limits. Sent with a
+        `Retry-After` header. The cap resets at midnight UTC. No plan
+        currently caps post drafts, so this is a shape to code against rather
+        than one you will meet today.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [ai_action_limited]
+            message:
+              type: string
+            retry_after:
+              type: integer
+              description: Seconds to wait before the cap resets.
 
     LegacyErrorEnvelope:
       type: object
