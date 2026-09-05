@@ -3,6 +3,27 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-06
+
+See what an AI call costs you, before and after you make it:
+
+**API**
+
+- `GET /v1/me` returns a `credits` block: `remaining`, `pool`, `period` (`month` on paid plans, `day` on trial), `period_end`, and `bonus`. It is `null` only when the pool cannot be read
+- Every credit-charging response carries `X-Credits-Remaining` and `X-Credits-Reset` (unix seconds), plus `X-Credits-Charged` where the endpoint knows the final number. `POST /v1/posts/draft` reports all three; `POST /v1/articles/{id}/cover` settles its cost after answering, so it reports remaining and reset
+- `429 ai_credits_exhausted` now carries `credits_required`, `credits_remaining` and `reset_at` (unix seconds) alongside the existing code and message, plus a `Retry-After` header. The code is unchanged: nothing to migrate, the fields are additive. Cover generation gains the same fields; its `remaining_day` / `remaining_month` cap counters are untouched
+- New `429 ai_action_limited` (with `retry_after`): a per-day count cap per plan on the most expensive AI actions, resetting at midnight UTC. It applies to endpoints arriving in the coming releases; the per-plan numbers are published in [Rate limits](/rate-limits#credits) now so you can size a workload
+- Credit and per-day checks fail closed: an unverifiable balance or counter refuses the call instead of running it unmetered
+- Documented: the Engage feed-fetch columns and the 100 uploads per key per day media cap now appear in the plan table
+
+**MCP**
+
+- No tool changes. Tools that spend credits sit behind the same pool, so `429 ai_credits_exhausted` on a tool call means the account is out of credits
+
+**CLI**
+
+- `superx status` prints a `credits` block alongside `plan` and `rate_limit`
+
 ## 2026-09-05
 
 Write post drafts in your own voice, and inspiration results now link back to the post on X:

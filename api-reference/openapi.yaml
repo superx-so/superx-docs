@@ -56,7 +56,7 @@ paths:
       tags: [Identity]
       operationId: getMe
       summary: Get the key owner
-      description: Returns the key owner, their plan, and the calling key's name and scopes.
+      description: Returns the key owner, their plan, the calling key's name and scopes, and the AI credit pool.
       responses:
         "200":
           description: The authenticated identity.
@@ -88,6 +88,12 @@ paths:
                     scopes: ["read", "write"]
                     created_at: "2026-07-01T09:15:00.000Z"
                     last_used_at: "2026-07-06T08:41:03.000Z"
+                  credits:
+                    remaining: 712
+                    pool: 750
+                    period: "month"
+                    period_end: "2026-10-01T00:00:00.000Z"
+                    bonus: 0
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/SubscriptionRequired" }
         "429": { $ref: "#/components/responses/RateLimited" }
@@ -369,6 +375,9 @@ paths:
             X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
             X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
           content:
             application/json:
               schema:
@@ -456,14 +465,24 @@ paths:
         "429":
           description: >-
             Rate limited (`rate_limited`, honor `Retry-After`) or the AI
-            credit pool is used up (`ai_credits_exhausted`).
+            credit pool is used up (`ai_credits_exhausted`, with the credit
+            counters).
+          headers:
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/CreditExhaustedError"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
               example:
                 error:
                   code: ai_credits_exhausted
                   message: "Not enough AI credits to draft these posts."
+                  credits_required: 9
+                  credits_remaining: 2
+                  reset_at: 1790812800
         "500": { $ref: "#/components/responses/InternalError" }
         "502":
           description: Every draft failed to generate (`generation_failed`). All credits for the call were refunded.
@@ -3731,7 +3750,7 @@ paths:
       description: |
         Generates a 2.5:1 cover image from the article's TITLE (a title is required) and, by default, attaches it as the article's cover. `attach: false` generates without touching the current cover; attach later via PATCH `cover_url`. `style_text` (max 8000 chars) steers the artwork.
 
-        Slow (60-100 seconds) and paid: spends AI credits against daily and monthly caps, all enforced server-side. 429 responses carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month` counters. Supports `Idempotency-Key`, recommended. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
+        Slow (60-100 seconds) and paid: spends AI credits (about 25 per generation) against daily and monthly caps, all enforced server-side. Cap 429s carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month`; a credit 429 carries `credits_required` / `credits_remaining` / `reset_at`. Supports `Idempotency-Key`, recommended. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -3762,6 +3781,8 @@ paths:
             X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
             X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
           content:
             application/json:
               schema:
@@ -3810,18 +3831,36 @@ paths:
                   code: cover_gen_in_progress
                   message: "A cover is already being generated for this article. Try again once it finishes."
         "429":
-          description: Rate limited, generation caps reached (`cover_gen_cap_daily` / `cover_gen_cap_monthly` with counters), or AI credits exhausted (`ai_credits_exhausted`).
+          description: Rate limited, generation caps reached (`cover_gen_cap_daily` / `cover_gen_cap_monthly` with counters), or AI credits exhausted (`ai_credits_exhausted`, with the credit counters and `Retry-After`).
+          headers:
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
-              example:
-                error:
-                  code: cover_gen_cap_daily
-                  message: "The daily cover generation cap has been reached."
-                  remaining_day: 0
-                  remaining_month: 7
-                  limit_day: 6
-                  limit_month: 13
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/CreditExhaustedError"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                cap_reached:
+                  summary: Daily generation cap
+                  value:
+                    error:
+                      code: cover_gen_cap_daily
+                      message: "The daily cover generation cap has been reached."
+                      remaining_day: 0
+                      remaining_month: 7
+                      limit_day: 6
+                      limit_month: 13
+                credits_exhausted:
+                  summary: Credit pool empty
+                  value:
+                    error:
+                      code: ai_credits_exhausted
+                      message: "Not enough AI credits for a cover generation."
+                      credits_required: 25
+                      credits_remaining: 4
+                      reset_at: 1790812800
         "502": { $ref: "#/components/responses/UpstreamError" }
         "504":
           description: AMBIGUOUS timeout. The render may still have completed. GET the article to check its cover before retrying.
@@ -3871,6 +3910,21 @@ components:
         type: integer
     X-RateLimit-Reset:
       description: Unix timestamp (seconds) when that window resets.
+      schema:
+        type: integer
+    X-Credits-Charged:
+      description: >-
+        AI credits kept for this call. Sent where the endpoint knows the final
+        number (post drafts); cover generation settles to its measured cost
+        after answering and sends the other two headers only.
+      schema:
+        type: integer
+    X-Credits-Remaining:
+      description: AI credits left in the account's pool, bonus credits included.
+      schema:
+        type: integer
+    X-Credits-Reset:
+      description: Unix timestamp (seconds) when the AI credit pool refills.
       schema:
         type: integer
 
@@ -3947,6 +4001,36 @@ components:
             retry_after:
               type: integer
               description: Seconds to wait before retrying (rate-limit errors only).
+
+    CreditExhaustedError:
+      type: object
+      required: [error]
+      description: |
+        The `429 ai_credits_exhausted` body: the standard envelope plus the
+        credit counters. Sent with a `Retry-After` header and the
+        `X-Credits-Remaining` / `X-Credits-Reset` headers. `code` is stable;
+        the counters are additive fields, safe to ignore.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [ai_credits_exhausted]
+            message:
+              type: string
+            credits_required:
+              type: integer
+              description: Credits the call needed.
+            credits_remaining:
+              type: integer
+              nullable: true
+              description: Credits available when it was refused.
+            reset_at:
+              type: integer
+              nullable: true
+              description: Unix timestamp (seconds) when the pool refills.
 
     LegacyErrorEnvelope:
       type: object
@@ -4045,6 +4129,31 @@ components:
               type: string
               format: date-time
               nullable: true
+        credits:
+          type: object
+          nullable: true
+          description: >-
+            The AI credit pool the paid endpoints draw from, or null when it
+            cannot be read. One credit is one cent of measured model spend.
+          properties:
+            remaining:
+              type: integer
+              description: Credits left, bonus credits included.
+            pool:
+              type: integer
+              description: Size of the plan's pool for the current period.
+            period:
+              type: string
+              enum: [month, day]
+              description: Paid plans refill monthly; trials refill daily.
+            period_end:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the pool refills.
+            bonus:
+              type: integer
+              description: Bonus credits, spent before the pool.
 
     PostMetrics:
       type: object

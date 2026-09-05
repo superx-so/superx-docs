@@ -16,7 +16,7 @@ Errors return an appropriate HTTP status and this JSON body:
 }
 ```
 
-`code` is stable and machine-readable; branch on it, not on `message` (messages may be reworded). Rate-limit errors add a `retry_after` field inside the envelope.
+`code` is stable and machine-readable; branch on it, not on `message` (messages may be reworded). Rate-limit errors add a `retry_after` field inside the envelope, and credit errors add `credits_required`, `credits_remaining` and `reset_at` (a unix timestamp in seconds). Fields are only ever added, never removed, so ignore ones you do not use.
 
 ## Legacy exception: subscription errors
 
@@ -62,7 +62,8 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
-| 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting) |
+| 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting). Carries `credits_required`, `credits_remaining` and `reset_at`, plus a `Retry-After` header. See [Credits](/rate-limits#credits) |
+| 429 | `ai_action_limited` | The per-day count limit for this AI action on your plan is used up. Carries `retry_after` and a `Retry-After` header; the counter resets at midnight UTC |
 | 500 | `internal_error` | Unexpected server error |
 | 502 | `upstream_error` | A dependent SuperX service returned an unexpected response |
 | 502 | `generation_failed` | Every draft in a `POST /v1/posts/draft` call failed to generate; all credits for the call were refunded |
@@ -74,4 +75,4 @@ Retired code: `media_not_supported` (posts were text-only before 2026-07-09). Po
 
 ## Fail-closed behavior
 
-When the API cannot verify something, it refuses rather than guesses: unverifiable linked or shared accounts return `503 accounts_unavailable` (never stale data), and an unreachable scheduling service returns `503 upstream_unavailable` (never a silent success).
+When the API cannot verify something, it refuses rather than guesses: unverifiable linked or shared accounts return `503 accounts_unavailable` (never stale data), and an unreachable scheduling service returns `503 upstream_unavailable` (never a silent success). The same rule covers metering: when your credit balance or a per-day action counter cannot be read, the call returns `429` rather than running unmetered.

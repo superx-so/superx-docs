@@ -3,16 +3,18 @@ title: "Rate limits"
 description: "Per-plan request limits, response headers and how to back off."
 ---
 
-Limits depend on your SuperX plan, with separate buckets for reads (`GET`), writes (`POST`, `PATCH`, `DELETE`) and live contact enrichment (adding contact-list members):
+Limits depend on your SuperX plan, with separate buckets for reads (`GET`), writes (`POST`, `PATCH`, `DELETE`), live contact enrichment (adding contact-list members) and Engage feed fetches:
 
-| Plan | Reads/min | Reads/day | Writes/min | Writes/day | Enrichment/min | Enrichment/day |
-| --- | --- | --- | --- | --- | --- | --- |
-| Trial | 15 | 2,000 | 5 | 50 | 2 | 20 |
-| Pro | 30 | 5,000 | 10 | 300 | 5 | 100 |
-| Advanced | 120 | 20,000 | 30 | 1,000 | 10 | 250 |
-| Ultra | 400 | 60,000 | 60 | 2,000 | 15 | 500 |
+| Plan | Reads/min | Reads/day | Writes/min | Writes/day | Enrichment/min | Enrichment/day | Feed fetches/min | Feed fetches/day |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Trial | 15 | 2,000 | 5 | 50 | 2 | 20 | 2 | 20 |
+| Pro | 30 | 5,000 | 10 | 300 | 5 | 100 | 5 | 60 |
+| Advanced | 120 | 20,000 | 30 | 1,000 | 10 | 250 | 10 | 120 |
+| Ultra | 400 | 60,000 | 60 | 2,000 | 15 | 500 | 15 | 300 |
 
-Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit.
+Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit. A feed fetch (`GET /v1/engage/feeds/{id}/posts`) counts against the feed bucket, and a list feed that rotates its members counts as 3 fetches.
+
+Media uploads have one more cap of their own: 100 per API key per day, counted per key rather than per account.
 
 Windows are fixed (aligned to the clock minute and UTC day), not sliding.
 
@@ -41,6 +43,70 @@ Over-limit requests return `429` with a `Retry-After` header (seconds) and this 
 ```
 
 Honor `Retry-After` before retrying. For sustained workloads, spread requests out rather than bursting at the top of each minute, and page with `limit=100` to reduce request counts.
+
+## Credits
+
+Endpoints that run an AI model spend **AI credits** on top of the request limits above. One credit is one cent of model spend. Some calls have a flat per-unit price (post drafting), and others charge what the work actually cost when it finishes (cover generation), so read the price per call below rather than assuming one rule. Your plan includes a pool: paid plans get a monthly pool that resets on your billing date, trials get a daily one. `GET /v1/me` returns the current pool:
+
+```json
+{
+  "credits": {
+    "remaining": 712,
+    "pool": 750,
+    "period": "month",
+    "period_end": "2026-10-01T00:00:00.000Z",
+    "bonus": 0
+  }
+}
+```
+
+Typical costs today:
+
+| Call | Credits |
+| --- | --- |
+| `POST /v1/posts/draft` | Flat 3 per draft (a 3-draft call charges 9) |
+| `POST /v1/articles/{id}/cover` | About 25 per generation, settled to what the render actually cost |
+
+Drafts that fail to generate are refunded, and a call where every draft failed returns `502 generation_failed` with nothing charged.
+
+### Credit headers
+
+Responses from a credit-charging endpoint carry:
+
+| Header | Meaning |
+| --- | --- |
+| `X-Credits-Charged` | Credits kept for this call. Present where the endpoint knows the final number (post drafts); cover generation settles to its measured cost after answering, so it reports the other two only |
+| `X-Credits-Remaining` | Credits left in the pool, bonus credits included |
+| `X-Credits-Reset` | Unix timestamp (seconds) when the pool refills |
+
+### When the pool is empty
+
+An exhausted pool returns `429 ai_credits_exhausted` with three fields in the envelope, plus a `Retry-After` header when the reset time is known:
+
+```json
+{
+  "error": {
+    "code": "ai_credits_exhausted",
+    "message": "Not enough AI credits to draft these posts.",
+    "credits_required": 9,
+    "credits_remaining": 2,
+    "reset_at": 1790812800
+  }
+}
+```
+
+`reset_at` is a unix timestamp in seconds. Buy a top-up or wait for the pool to refill; retrying sooner returns the same error.
+
+### Per-day action limits
+
+Some AI actions also carry a per-day count cap per plan, so an unusually cheap run cannot be repeated all day. Over the cap returns `429 ai_action_limited` with `retry_after` and a `Retry-After` header; the counter resets at midnight UTC. These caps are in place for the endpoints below, which are being added over the coming releases:
+
+| Action | Trial | Pro | Advanced | Ultra |
+| --- | --- | --- | --- | --- |
+| `lead_search` | 2 | 10 | 25 | 50 |
+| `research_profiles` | 10 | 50 | 100 | 250 |
+
+Credit and action limits fail closed: when SuperX cannot verify your balance or your day count, the call is refused rather than run for free.
 
 ## Failed authentication attempts
 
