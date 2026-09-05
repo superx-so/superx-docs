@@ -47,6 +47,8 @@ The credentials file takes priority over the environment variable when both exis
 | `superx replies:list` | List replies the account has sent (newest first) |
 | `superx replies:received` | List replies the audience has sent the account across all its posts |
 | `superx inspiration:search <query>` | Search a library of 50M+ high-performing posts for inspiration |
+| `superx engage:feeds` | List the Engage feeds saved in the SuperX app (id, name, type, active, fetch_units) |
+| `superx engage:posts <feed-id>` | Fetch candidate posts from one Engage feed for review (`--limit`, `--mode top` or `latest`, `--fresh`, `--exclude` ids to page); replies are sent by a person in SuperX |
 | `superx contacts:list` | List the people who engage with you most |
 | `superx contacts:replies <id>` | List a contact's replies to you (their id from `contacts:list`) |
 | `superx lists:list` | List your contact lists (system lists are read-only) |
