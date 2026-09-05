@@ -52,10 +52,20 @@ The credentials file takes priority over the environment variable when both exis
 | `superx engage:posts <feed-id>` | Fetch candidate posts from one Engage feed for review (`--limit`, `--mode top` or `latest`, `--fresh`, `--exclude` ids to page); replies are sent by a person in SuperX |
 | `superx contacts:list` | List the people who engage with you most |
 | `superx contacts:replies <id>` | List a contact's replies to you (their id from `contacts:list`) |
+| `superx contacts:get <id>` | Show one person: profile, follower counts and the lists they are in (`--refresh` refreshes a stale profile from X) |
+| `superx contacts:notes <id>` | List your private notes about one person (newest first) |
+| `superx contacts:notes:add <id>` | Write a private note about one person (`--body`, never posted anywhere) |
+| `superx contacts:notes:update <id> <noteId>` | Rewrite one note (`--body` fully replaces the old text) |
+| `superx contacts:notes:delete <id> <noteId>` | Delete one note (note id from `contacts:notes`) |
 | `superx lists:list` | List your contact lists (system lists are read-only) |
 | `superx lists:members <id>` | List the members of a contact list you created (`--q` filters) |
 | `superx lists:add-member <id>` | Add a person to a contact list (`--handle` or `--x-user-id`) |
 | `superx lists:remove-member <id> <memberId>` | Remove a member from a contact list |
+| `superx lists:create` | Create a contact list (`--name`; names are not unique) |
+| `superx lists:rename <id>` | Rename a contact list you created (`--name`) |
+| `superx lists:delete <id>` | Delete a contact list you created and its membership (the people stay) |
+| `superx lists:add-members <id>` | Add up to 500 people at once (`--x-user-ids` comma list); ids SuperX does not know come back in `not_found` |
+| `superx lists:remove-members <id>` | Remove up to 500 members at once (`--member-ids` comma list from `lists:members`) |
 | `superx signals:agents` | List your signal agents (automated lead finders) with their watched signals |
 | `superx signals:leads` | List the leads your signal agents have found (`--agent`, `--deposited`, `--since`/`--until` filters) |
 | `superx signals:create-agent` | Create a signal agent (`--name`, `--icp` required; repeat `--keyword` for 1-5 watches or omit to auto-suggest; `--list-id` or omit to auto-create a list) |
@@ -73,6 +83,7 @@ The credentials file takes priority over the environment variable when both exis
 | `superx context:products` | List the account's products (used for product mentions in generated content) |
 | `superx context:products:set` | Add or edit one product by `--url` (creates it when new, cap 5) or `--id` |
 | `superx context:products:delete <id>` | Remove a product by id (reversible by re-adding the same url) |
+| `superx context:products:replace` | Replace the WHOLE product list with a `--json` array (max 5); products missing from it are removed |
 | `superx queue:get` | Show the account's posting schedule: predefined time slots and the timezone they run in |
 | `superx queue:set` | Change the posting schedule (`--slots-json` full replace, 0 = Sunday, `'[]'` clears; `--timezone` IANA name); changing the slots re-flows queued posts onto them |
 | `superx tags:list` | List your tags (id, name, color) |
@@ -101,6 +112,8 @@ Advanced settings on `scheduled:create`: flags you omit inherit your Default Pos
 Article bodies are markdown in both directions: headings, lists, blockquotes, bold/italic/strikethrough, links, images by URL, and bare X post URLs as embeds. Constructs the X Articles format cannot express (code blocks, horizontal rules) degrade to plain text and are reported in a `warnings` array.
 
 Context settings (`context:get` / `context:set`) are the background SuperX's AI uses when writing for the account: the profile description grounds the voice, `--interests` drive content suggestions, `--rules` are mandatory instructions on every AI surface, `--reply-rules` and `--reply-author-name` steer generated replies, `--favorite-creators` (max 3) inspire the style, and `--style-audience`/`--style-vocabulary` outrank the app's generated style guide until cleared with `""`. Boolean flags support `--no-*` negation. Caps: 500 characters for the profile description, rules, and reply rules; 600 for the style audience; 1000 for the style vocabulary; 30 interests; 3 creators; 5 products.
+
+Contacts and lists: `contacts:get` takes a numeric X user id (from `contacts:list`, `lists:members`, or `signals:leads`) and returns the stored profile plus the lists that person is in. `--refresh` refreshes a stale profile from X and counts against the tighter enrichment limit, so leave it off unless the follower counts have to be current. Notes are private to SuperX and never posted, and a note written through the CLI is attributed to the account it was written as. `lists:add-members` adds up to 500 people in one call by X user id and does no live lookup, which is why it costs one write and no enrichment; ids SuperX has never seen come back in `not_found` and are not added, so add those with `lists:add-member --handle`. `lists:delete` also stops any signal agent depositing into that list until the agent is repointed in the SuperX app. `context:products:replace` is a full replace by url: read `context:products` first and send every product the account should keep, or use `context:products:set` to change one in place.
 
 ## JSON output
 

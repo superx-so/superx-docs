@@ -819,6 +819,79 @@ paths:
         "500": { $ref: "#/components/responses/InternalError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
+  /v1/contacts/{id}:
+    get:
+      tags: [Audience]
+      operationId: getContact
+      summary: Get one contact
+      description: |
+        One person's stored profile (handle, name, bio, location, website,
+        follower counts, verified status) plus the lists you created that they
+        are a member of, each with the `member_id` the remove endpoints take.
+
+        The two halves are scoped differently. The profile is SuperX's cached
+        public profile for that X id, so it resolves for anyone SuperX has
+        seen, not only people who have engaged with the selected account; a
+        404 `contact_not_found` means SuperX has no cached profile for the id,
+        not that this account does not know them. The `lists` array is the
+        account-scoped half.
+
+        The default read serves the stored profile and costs one read.
+        `refresh=true` refreshes a stale profile from X and therefore also
+        counts against the tighter live-contact-enrichment limit, the same
+        bucket `POST /v1/contact-lists/{id}/members` uses.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The person's numeric X user id (from `GET /v1/contacts`, list members, or signal leads).
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+        - name: refresh
+          in: query
+          description: Refresh the profile from X when the stored copy is stale. Costs one enrichment unit.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The contact.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ContactDetail" }
+              example:
+                data:
+                  id: "944883311"
+                  username: "founderhandle"
+                  name: "Founder Name"
+                  avatar_url: "https://pbs.twimg.com/profile_images/..."
+                  bio: "Bootstrapping a SaaS in public."
+                  location: "Austin, TX"
+                  url: "https://example.com"
+                  followers_count: 12800
+                  following_count: 640
+                  is_blue_verified: true
+                  verified_type: null
+                  lists:
+                    - id: "k1l2m3n4o5p6q7r8s9t0u"
+                      name: "Founder prospects"
+                      member_id: "m1a2b3c4d5e6f7g8h9i0j"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/ContactNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
   /v1/contacts/{id}/replies:
     get:
       tags: [Audience]
@@ -876,6 +949,215 @@ paths:
         "500": { $ref: "#/components/responses/InternalError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
+  /v1/contacts/{id}/notes:
+    get:
+      tags: [Audience]
+      operationId: listContactNotes
+      summary: List notes on a contact
+      description: |
+        The private notes this account has written about one person, newest
+        first. Notes live inside SuperX and are never posted anywhere. Not
+        paginated: notes are per-contact and few.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The person's numeric X user id.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The contact's notes.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ContactNote" }
+              example:
+                data:
+                  - id: "n1a2b3c4d5e6f7g8h9i0j"
+                    body: "Met at the SaaS meetup. Wants a demo in September."
+                    created_at: "2026-08-14T16:20:00.000Z"
+                    updated_at: "2026-08-14T16:20:00.000Z"
+                    created_by:
+                      x_user_id: "44196397"
+                      username: "yourhandle"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    post:
+      tags: [Audience]
+      operationId: createContactNote
+      summary: Add a note to a contact
+      description: |
+        Write a private note about one person. The note is attributed to the
+        account it was written as (`created_by`), which for an API write is the
+        account named by `account_id` (your main account when omitted).
+
+        No `Idempotency-Key`: notes have no uniqueness constraint, so a replay
+        creates a second note. Duplicates are visible in the list read and
+        deletable. Works for your main account or any account linked to it;
+        accounts shared with you are read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The person's numeric X user id.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                account_id:
+                  type: string
+                  description: The account to write as. Defaults to your main account.
+            example:
+              body: "Met at the SaaS meetup. Wants a demo in September."
+      responses:
+        "201":
+          description: The created note.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ContactNote" }
+              example:
+                data:
+                  id: "n1a2b3c4d5e6f7g8h9i0j"
+                  body: "Met at the SaaS meetup. Wants a demo in September."
+                  created_at: "2026-09-06T10:00:00.000Z"
+                  updated_at: "2026-09-06T10:00:00.000Z"
+                  created_by:
+                    x_user_id: "44196397"
+                    username: "yourhandle"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/contacts/{id}/notes/{noteId}:
+    patch:
+      tags: [Audience]
+      operationId: updateContactNote
+      summary: Edit a note on a contact
+      description: |
+        Replace one note's body. The note must belong to the contact in the
+        path: a note id from another contact returns 404 `note_not_found`.
+        Works for your main account or any account linked to it; accounts
+        shared with you are read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The person's numeric X user id.
+          schema:
+            type: string
+        - name: noteId
+          in: path
+          required: true
+          description: The note id from `GET /v1/contacts/{id}/notes`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                account_id:
+                  type: string
+            example:
+              body: "Demo booked for 12 September."
+      responses:
+        "200":
+          description: The updated note.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ContactNote" }
+              example:
+                data:
+                  id: "n1a2b3c4d5e6f7g8h9i0j"
+                  body: "Demo booked for 12 September."
+                  created_at: "2026-08-14T16:20:00.000Z"
+                  updated_at: "2026-09-06T10:05:00.000Z"
+                  created_by:
+                    x_user_id: "44196397"
+                    username: "yourhandle"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/NoteNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    delete:
+      tags: [Audience]
+      operationId: deleteContactNote
+      summary: Delete a note on a contact
+      description: |
+        Returns 204 with no body. Deleting an already-deleted note, or a note
+        belonging to another contact, returns 404 `note_not_found`. Works for
+        your main account or any account linked to it; accounts shared with you
+        are read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The person's numeric X user id.
+          schema:
+            type: string
+        - name: noteId
+          in: path
+          required: true
+          description: The note id from `GET /v1/contacts/{id}/notes`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: The note was deleted.
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/NoteNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
   /v1/contact-lists:
     get:
       tags: [Contact Lists]
@@ -923,6 +1205,151 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/SubscriptionRequired" }
         "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+    post:
+      tags: [Contact Lists]
+      operationId: createContactList
+      summary: Create a contact list
+      description: |
+        Create a list you can add people to. Names are NOT unique: the SuperX
+        app allows two lists with the same name and this endpoint matches it,
+        so read `GET /v1/contact-lists` first if the caller expects one list
+        per name. No `Idempotency-Key`: a replay creates a second list, which
+        is visible in the index and deletable.
+
+        Works for your main account or any account linked to it (`account_id`);
+        accounts shared with you are read-only. Needs the write scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                account_id:
+                  type: string
+            example:
+              name: "Founder prospects"
+      responses:
+        "201":
+          description: The created list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ContactList" }
+              example:
+                data:
+                  id: "k1l2m3n4o5p6q7r8s9t0u"
+                  name: "Founder prospects"
+                  is_system: false
+                  kind: null
+                  member_count: 0
+                  created_at: "2026-09-06T10:00:00.000Z"
+                  updated_at: "2026-09-06T10:00:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/contact-lists/{id}:
+    patch:
+      tags: [Contact Lists]
+      operationId: renameContactList
+      summary: Rename a contact list
+      description: |
+        Rename a list you created. System lists are managed automatically and
+        return 400 `system_list_read_only`. Works for your main account or any
+        account linked to it (`account_id`); accounts shared with you are
+        read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                account_id:
+                  type: string
+            example:
+              name: "Founder prospects Q4"
+      responses:
+        "200":
+          description: The updated list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ContactList" }
+              example:
+                data:
+                  id: "k1l2m3n4o5p6q7r8s9t0u"
+                  name: "Founder prospects Q4"
+                  is_system: false
+                  kind: null
+                  member_count: 42
+                  created_at: "2026-06-20T14:30:00.000Z"
+                  updated_at: "2026-09-06T10:05:00.000Z"
+        "400": { $ref: "#/components/responses/SystemListReadOnly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ListNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    delete:
+      tags: [Contact Lists]
+      operationId: deleteContactList
+      summary: Delete a contact list
+      description: |
+        Delete a list you created, and with it its membership. The people
+        themselves are untouched, but a signal agent depositing into this list
+        stops until it is repointed in the SuperX app. Returns 204 with no
+        body; a second delete returns 404 `list_not_found`. System lists return
+        400 `system_list_read_only`.
+
+        Works for your main account or any account linked to it (`account_id`);
+        accounts shared with you are read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: The list was deleted.
+        "400": { $ref: "#/components/responses/SystemListReadOnly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ListNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -1106,6 +1533,141 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/WriteForbidden" }
         "404": { $ref: "#/components/responses/MemberNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/contact-lists/{id}/members/bulk:
+    post:
+      tags: [Contact Lists]
+      operationId: addContactListMembers
+      summary: Add contact list members in bulk
+      description: |
+        Add up to 500 people to a list you created, by numeric X user id.
+
+        This endpoint does NO live profile lookup, which is why it costs one
+        write and no enrichment: it builds each member from the profile SuperX
+        already stores. Ids SuperX has never seen come back in `not_found` and
+        are NOT added, so no placeholder members are ever created. Add those
+        one at a time with `POST /v1/contact-lists/{id}/members` and a
+        `handle`, which does resolve live (and costs one enrichment unit).
+
+        Re-adding an existing member is counted in `duplicates`, never an
+        error. Duplicate ids inside one call are collapsed. System lists return
+        400 `system_list_read_only`.
+
+        Works for your main account or any account linked to it (`account_id`);
+        accounts shared with you are read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [x_user_ids]
+              properties:
+                x_user_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    type: string
+                  description: Numeric X user ids.
+                account_id:
+                  type: string
+            example:
+              x_user_ids: ["944883311", "44196397", "1234567890"]
+      responses:
+        "200":
+          description: The bulk add finished. Read the counters for what happened.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/BulkAddResult" }
+              example:
+                data:
+                  added: 2
+                  duplicates: 0
+                  failed: 0
+                  not_found: ["1234567890"]
+                  total_in_list_after: 44
+        "400": { $ref: "#/components/responses/SystemListReadOnly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ListNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/contact-lists/{id}/members/bulk-delete:
+    post:
+      tags: [Contact Lists]
+      operationId: removeContactListMembers
+      summary: Remove contact list members in bulk
+      description: |
+        Remove up to 500 members from a list you created, by member id (the
+        `id` from `GET /v1/contact-lists/{id}/members`).
+
+        POST rather than DELETE because the ids travel in a body. The delete is
+        scoped to this list, so ids that are not in it are skipped and
+        `deleted` can be lower than the number you sent. There is deliberately
+        no "delete everything matching a filter" mode. System lists return 400
+        `system_list_read_only`.
+
+        Works for your main account or any account linked to it (`account_id`);
+        accounts shared with you are read-only. Needs the write scope.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The list id from `GET /v1/contact-lists`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_ids]
+              properties:
+                member_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    type: string
+                  description: Member ids from `GET /v1/contact-lists/{id}/members`.
+                account_id:
+                  type: string
+            example:
+              member_ids: ["m1a2b3c4d5e6f7g8h9i0j", "m2b3c4d5e6f7g8h9i0j1k"]
+      responses:
+        "200":
+          description: The bulk removal finished.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/BulkRemoveResult" }
+              example:
+                data:
+                  deleted: 2
+                  total_in_list_after: 42
+        "400": { $ref: "#/components/responses/SystemListReadOnly" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/ListNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -4442,6 +5004,86 @@ components:
               format: date-time
               nullable: true
 
+    ContactDetail:
+      type: object
+      description: One person's stored profile plus the lists you created that they are in.
+      properties:
+        id:
+          type: string
+          description: The person's numeric X user id.
+        username:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+          description: The website on their X profile, expanded.
+        followers_count:
+          type: integer
+          nullable: true
+        following_count:
+          type: integer
+          nullable: true
+        is_blue_verified:
+          type: boolean
+          nullable: true
+          description: null when the verified state is unknown; never fabricated.
+        verified_type:
+          type: string
+          nullable: true
+        lists:
+          type: array
+          description: Lists you created that this person is a member of. System lists are never listed here.
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              member_id:
+                type: string
+                description: The membership id the remove endpoints take.
+
+    ContactNote:
+      type: object
+      description: A private note about one person. Notes live inside SuperX and are never posted.
+      properties:
+        id:
+          type: string
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_by:
+          type: object
+          description: The account the note was written as. Notes written through the API carry the account named by account_id.
+          properties:
+            x_user_id:
+              type: string
+              nullable: true
+            username:
+              type: string
+              nullable: true
+
     ContactList:
       type: object
       properties:
@@ -4527,6 +5169,39 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    BulkAddResult:
+      type: object
+      description: |
+        Counters from a bulk member add. added + duplicates + failed equals the number of resolvable ids; not_found ids never reached the list.
+        Members are inserted one at a time upstream, so a 502 or 503 can land after some of them were already added. Retrying the same request is safe: the list dedupes on (list, person), so anything that got in the first time comes back in `duplicates` rather than being added twice.
+      properties:
+        added:
+          type: integer
+          description: New members created.
+        duplicates:
+          type: integer
+          description: Ids already in the list. Nothing was written for them.
+        failed:
+          type: integer
+          description: Resolvable ids whose insert failed.
+        not_found:
+          type: array
+          description: Submitted ids with no stored profile. Nothing was sent for them and no placeholder member was created; add these by handle instead.
+          items:
+            type: string
+        total_in_list_after:
+          type: integer
+          description: Members in the list once the call finished.
+
+    BulkRemoveResult:
+      type: object
+      properties:
+        deleted:
+          type: integer
+          description: Members actually removed. Lower than the ids sent when some were not in this list.
+        total_in_list_after:
+          type: integer
 
     SignalAgentSignal:
       type: object
@@ -5248,6 +5923,26 @@ components:
               code: account_not_found
               message: "No account with that id belongs to this key"
 
+    ContactNotFound:
+      description: SuperX has no cached profile for that X id (`contact_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: contact_not_found
+              message: "No contact with that id is known to SuperX."
+
+    NoteNotFound:
+      description: No note with that id belongs to this contact (`note_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: note_not_found
+              message: "No note with that id belongs to this contact."
+
     ListNotFound:
       description: No contact list with that id belongs to this account.
       content:
@@ -5299,7 +5994,7 @@ components:
               message: "No signal agent with that agent_id belongs to this account."
 
     SystemListReadOnly:
-      description: Member add/remove on a system list (`system_list_read_only`), or a malformed body (`invalid_parameter`).
+      description: A write against a system list (`system_list_read_only`) - renaming or deleting one, or adding/removing its members, singly or in bulk - or a malformed body (`invalid_parameter`).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }

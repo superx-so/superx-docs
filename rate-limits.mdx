@@ -12,7 +12,7 @@ Limits depend on your SuperX plan, with separate buckets for reads (`GET`), writ
 | Advanced | 120 | 20,000 | 30 | 1,000 | 10 | 250 | 10 | 120 |
 | Ultra | 400 | 60,000 | 60 | 2,000 | 15 | 500 | 15 | 300 |
 
-Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit. A feed fetch (`GET /v1/engage/feeds/{id}/posts`) counts against the feed bucket, and a list feed that rotates its members counts as 3 fetches.
+Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit, and so does `GET /v1/contacts/{id}?refresh=true`. Bulk adding members (`POST /v1/contact-lists/{id}/members/bulk`) costs one write and no enrichment: it resolves ids SuperX already knows and never calls out to X. A feed fetch (`GET /v1/engage/feeds/{id}/posts`) counts against the feed bucket, and a list feed that rotates its members counts as 3 fetches.
 
 Media uploads have one more cap of their own: 100 per API key per day, counted per key rather than per account.
 
