@@ -58,6 +58,8 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 403 | (legacy string) | Subscription lapsed; see above |
 | 404 | `account_not_found` | `account_id` is not one of your accounts |
 | 404 | `not_found` | No such resource for this account (for example a scheduled post id) |
+| 404 | `contact_not_found` | The id is not one of the account's contacts. Contact endpoints cover your engagers, contact-list members and signal leads; they are not a general X profile lookup |
+| 404 | `note_not_found` | No note with that id belongs to the contact in the path |
 | 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
 | 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
