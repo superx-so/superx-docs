@@ -829,17 +829,19 @@ paths:
         follower counts, verified status) plus the lists you created that they
         are a member of, each with the `member_id` the remove endpoints take.
 
-        The two halves are scoped differently. The profile is SuperX's cached
-        public profile for that X id, so it resolves for anyone SuperX has
-        seen, not only people who have engaged with the selected account; a
-        404 `contact_not_found` means SuperX has no cached profile for the id,
-        not that this account does not know them. The `lists` array is the
-        account-scoped half.
+        LIMITED TO THE ACCOUNT'S KNOWN CONTACTS. The id must be someone the
+        selected account has a relationship with: a person who has replied to
+        or reposted its posts, a member of one of its contact lists (manual or
+        system), or a scored signal lead. Any other id returns 404
+        `contact_not_found`, even when SuperX holds a cached profile for it -
+        this is not a general X profile lookup.
 
         The default read serves the stored profile and costs one read.
         `refresh=true` refreshes a stale profile from X and therefore also
         counts against the tighter live-contact-enrichment limit, the same
-        bucket `POST /v1/contact-lists/{id}/members` uses.
+        bucket `POST /v1/contact-lists/{id}/members` uses. That unit is spent
+        before the contact is resolved, so a `refresh=true` call on an id that
+        turns out not to be a contact is charged and then returns 404.
       parameters:
         - name: id
           in: path
@@ -5924,14 +5926,14 @@ components:
               message: "No account with that id belongs to this key"
 
     ContactNotFound:
-      description: SuperX has no cached profile for that X id (`contact_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      description: That id is not one of the account's known contacts (`contact_not_found`), or account_id is not one of your accounts (`account_not_found`).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
           example:
             error:
               code: contact_not_found
-              message: "No contact with that id is known to SuperX."
+              message: "No contact with that id belongs to this account. Contacts are the account's engagers, contact-list members and signal leads."
 
     NoteNotFound:
       description: No note with that id belongs to this contact (`note_not_found`), or account_id is not one of your accounts (`account_not_found`).

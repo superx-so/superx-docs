@@ -3,6 +3,23 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-07
+
+Contact detail is limited to your own contacts:
+
+**API**
+
+- `GET /v1/contacts/{id}` now returns 404 `contact_not_found` unless the id is one of the account's known contacts: someone who has replied to or reposted its posts, a member of one of its contact lists (manual or system), or a scored signal lead. It is not a general X profile lookup, so an id SuperX holds a cached profile for is still a 404 when the account has no relationship with that person. A lookup endpoint for arbitrary ids will come separately
+- `refresh=true` still spends one enrichment unit before the contact is resolved, so a refresh on an unknown id is charged and then returns 404
+
+**MCP**
+
+- `get_contact` follows the same rule and its description now says so. Pass ids from `get_top_contacts`, `get_contact_list_members` or `get_signal_leads`
+
+**CLI**
+
+- `superx contacts:get <id>` inherits the same 404
+
 ## 2026-09-06
 
 Manage the contacts side of SuperX over the API, MCP and the CLI:
