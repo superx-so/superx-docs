@@ -5,41 +5,42 @@ description: "API changes, newest first."
 
 ## 2026-09-07
 
-Publish immediately, edit the queue in bulk, and see app-sent replies right away:
+Engage feeds, signal agents and article cover styles become writable, posts can be published immediately, the queue can be edited in bulk, and contact detail is limited to your own contacts:
 
 **API**
 
+- `POST /v1/engage/feeds`, `PATCH /v1/engage/feeds/{id}` and `DELETE /v1/engage/feeds/{id}` create, edit and delete the saved Engage feeds that were read-only before. A feed source is keywords (1-5), a public X list (`x_list_id` or `x_list_url`), or one of your contact lists (`list_id`); a create takes exactly one, an update takes at most one and may change the feed's type while keeping its id. A feed created through the API does NOT become the feed the SuperX app has open, by design: the API must not move someone's view while they are working in it. Up to 8 feeds per account (409 `feed_limit_reached`), and deleting the open feed hands the slot to the first remaining feed
+- `PATCH /v1/signals/agents/{id}` is no longer status-only: it now edits `name`, `icp_description`, `precision_mode`, `destination_list_id` and `status`, alone or together. A new ICP re-scores only future leads; a `destination_list_id` that is not one of your usable lists returns 404 `list_not_found`
+- `POST /v1/signals/agents/{id}/signals` adds one thing for an agent to watch (`keyword_watch`, `profile_watch`, `follower_watch`, `list_watch`) and `DELETE /v1/signals/agents/{id}/signals/{signalId}` removes one. Removing the last signal is allowed: the agent stays, finding nothing, until a signal is added back
+- `POST /v1/signals/agents` accepts `signals` alongside `keywords`, so an agent can start with all four watch types (1-5 entries combined, keywords first). The create is a PARTIAL SUCCESS: entries the add path rejects come back in `warnings` (each with its `type`, `target` and a `code`) and the agent is still created from the entries that landed. Only when every entry fails is the agent rolled back
+- `POST /v1/signals/leads/{id}/feedback` records `fit`, `not_fit` or `null` on one lead, and `SignalLead` gained `feedback` and `feedback_at`. The path id is the numeric LEAD id from `GET /v1/signals/leads`, not an X user id. The verdict is what the scorer learns from and is mirrored onto the person's row in the agent's destination contact list
+- `GET /v1/cover-styles` lists the article cover styles saved in the app, and `POST /v1/articles/{id}/cover` accepts `style_id` to render in one of them. Sending `style_id` and `style_text` together is a 400 rather than a silent precedence, so the request always says which look was rendered; an unknown id returns 404 `cover_style_not_found`
 - `POST /v1/scheduled-posts` accepts `scheduled_for: "now"` and publishes to X immediately. Because that cannot be undone, an `Idempotency-Key` is REQUIRED (400 `invalid_parameter` without one), and `title` and `scratchpad` are rejected. A retry that arrives while the first attempt is still publishing returns 409 `idempotency_in_flight` with a `Retry-After`; after that window a retry with the same key replays the original result instead of posting again. The 201 carries `status: "sent"` with `posted_at`, `x_post_id` and `url`, and `scheduled_for: null`. Advanced settings and Auto DM inherit your Default Post Settings exactly as they do for a scheduled post, and Bluesky is never cross-posted
 - `POST /v1/scheduled-posts/bulk/retime` moves up to 500 queued posts in ONE transaction (all or none), `POST /v1/scheduled-posts/bulk/auto-retweet` turns Auto Retweet on for up to 100 queued posts that do not already have one, and `POST /v1/scheduled-posts/bulk/delete` deletes up to 100 queued posts and refunds their post quota. All three touch QUEUED posts only: drafts, sent posts and error rows are counted as skipped, so the returned counts can be lower than the number of ids sent. Each costs one write no matter how many posts it touches, and none takes an `Idempotency-Key` because re-running converges
 - `GET /v1/replies` page 1 now also lists replies sent from the SuperX app's Engage tab in the last 4 hours, which previously took hours to appear here. Those items carry `metrics_pending: true` with all-zero metrics until X reports them, so page 1 can return slightly more than `limit` items; `has_more` still describes the stored replies only, and later pages and `since`/`until` queries are unchanged
 - `ScheduledPost` gained `x_post_id` and `url`, present only on posts that actually went out (status `sent`)
-- New error codes: 403 `reauth_required`, 409 `idempotency_in_flight`, 409 `post_already_published`
+- `GET /v1/contacts/{id}` now returns 404 `contact_not_found` unless the id is one of the account's known contacts: someone who has replied to or reposted its posts, a member of one of its contact lists (manual or system), or a scored signal lead. It is not a general X profile lookup, so an id SuperX holds a cached profile for is still a 404 when the account has no relationship with that person. A lookup endpoint for arbitrary ids will come separately
+- Creating a note (`POST /v1/contacts/{id}/notes`) uses the same gate: you can only start a note on a known contact, so any other id returns 404 `contact_not_found`. Reading, editing and deleting notes are NOT gated - they work on any id the account already has a note on, so a note stays reachable if that person later drops out of your contacts, and listing an id with no notes returns an empty array
+- Enrichment: resolving an X list or an X handle live costs one unit of the tighter enrichment allowance. That covers a feed create/update with `x_list_id` / `x_list_url`, a `profile_watch` / `follower_watch` / `list_watch` signal add, and an agent create whose `signals` carry any of those three (one unit for the whole create, however many entries). Keyword feeds, contact-list feeds and `keyword_watch` cost none. The `refresh=true` contact enrichment unit is charged only after the contact gate passes, so an id outside your contacts does not spend one
+- New error codes: 403 `reauth_required`, 404 `x_list_not_found`, 404 `signal_not_found`, 404 `lead_not_found`, 404 `cover_style_not_found`, 409 `duplicate_signal`, 409 `feed_limit_reached`, 409 `idempotency_in_flight`, 409 `post_already_published`
 
 **MCP**
 
-- Four new tools (fifty-nine tools total): `publish_post`, `bulk_retime_scheduled_posts`, `bulk_enable_auto_retweet`, `bulk_delete_scheduled_posts`. `publish_post` takes a required `idempotency_key` you choose and reuse verbatim on retries; the bulk tools answer with counts and touch queued posts only
+- Four new post tools: `publish_post`, `bulk_retime_scheduled_posts`, `bulk_enable_auto_retweet`, `bulk_delete_scheduled_posts`. `publish_post` takes a required `idempotency_key` you choose and reuse verbatim on retries; the bulk tools answer with counts and touch queued posts only
+- Eight more tools for feeds, signals and cover styles (sixty-seven tools total): `create_engage_feed`, `update_engage_feed`, `delete_engage_feed`, `update_signal_agent`, `add_signal_agent_signal`, `remove_signal_agent_signal`, `set_lead_feedback`, `list_cover_styles`
+- `create_signal_agent` gained `signals` (and returns `warnings`), and `generate_article_cover` gained `style_id`; passing `style_id` and `style_text` together is a tool error
 - `get_my_replies` merges the same 4 hours of app-sent replies on page 1 of the recent sort, flagged with `metrics_pending`
-- Existing MCP sessions need a reconnect to see the new tools
+- `get_contact` and `add_contact_note` follow the same known-contact rule as the API and their descriptions now say so; `list_contact_notes`, `update_contact_note` and `delete_contact_note` work on any id with an existing note. Pass ids from `get_top_contacts`, `get_contact_list_members` or `get_signal_leads`
+- The server instructions no longer describe Engage feeds as read-only
+- Existing MCP sessions need a reconnect to see the new tools and parameters
 
 **CLI**
 
 - `superx posts:publish` publishes now (`--idempotency-key` required; same content, media and advanced-settings flags as `scheduled:create` minus `--at`/`--title`/`--scratchpad`)
 - `superx scheduled:bulk-retime --moves-json`, `superx scheduled:bulk-auto-retweet --ids --auto-retweet <h>` and `superx scheduled:bulk-delete --ids`
-
-Contact detail is limited to your own contacts:
-
-**API**
-
-- `GET /v1/contacts/{id}` now returns 404 `contact_not_found` unless the id is one of the account's known contacts: someone who has replied to or reposted its posts, a member of one of its contact lists (manual or system), or a scored signal lead. It is not a general X profile lookup, so an id SuperX holds a cached profile for is still a 404 when the account has no relationship with that person. A lookup endpoint for arbitrary ids will come separately
-- Creating a note (`POST /v1/contacts/{id}/notes`) uses the same gate: you can only start a note on a known contact, so any other id returns 404 `contact_not_found`. Reading, editing and deleting notes are NOT gated - they work on any id the account already has a note on, so a note stays reachable if that person later drops out of your contacts, and listing an id with no notes returns an empty array
-- The `refresh=true` enrichment unit is charged only after the contact gate passes, so an id outside your contacts does not spend one.
-
-**MCP**
-
-- `get_contact` and `add_contact_note` follow the same rule and their descriptions now say so; `list_contact_notes`, `update_contact_note` and `delete_contact_note` work on any id with an existing note. Pass ids from `get_top_contacts`, `get_contact_list_members` or `get_signal_leads`
-
-**CLI**
-
+- `superx engage:feeds:create --name` with `--keyword`, `--x-list` or `--list-id`, plus `engage:feeds:update <feedId>` and `engage:feeds:delete <feedId>`
+- `superx signals:update-agent <id>`, `superx signals:add-signal <id> --type ...`, `superx signals:remove-signal <id> <signalId>` and `superx signals:feedback <leadId> --fit|--not-fit|--clear`; `signals:create-agent` gained repeatable `--signal "type:target"`
+- `superx articles:cover-styles`, and `superx articles:cover <id> --style-id` (not with `--style`)
 - `superx contacts:get <id>` and `superx contacts:notes:add` inherit the same 404; the other `contacts:notes*` commands are unrestricted
 
 ## 2026-09-06

@@ -1777,11 +1777,26 @@ paths:
         Signals (and `GET /v1/signals/leads`) over the following minutes and
         days; nothing is returned synchronously.
 
-        Omit `keywords` and 1-3 watches are suggested from the ICP (if
-        suggestion fails, nothing is created and you get 502
+        `keywords` is shorthand for keyword watches; `signals` carries all
+        four watch types (`keyword_watch`, `profile_watch`, `follower_watch`,
+        `list_watch`). Send either or both: 1-5 distinct entries combined,
+        keywords first. Omit both and 1-3 keyword watches are suggested from
+        the ICP (if suggestion fails, nothing is created and you get 502
         `upstream_error`). Omit `destination_list_id` and a contact list
         named `Leads: <agent name>` is created for the leads, flagged
         `destination_list_created: true` in the response.
+
+        PARTIAL SUCCESS: entries the add path rejects (an unknown handle, a
+        private list, a duplicate, the per-agent signal cap) come back in
+        `warnings` and the agent is still created from the entries that
+        landed. Only when EVERY entry fails is the agent rolled back and an
+        error returned. Read `warnings` before reporting what the agent
+        watches, and re-add the fixed entries with
+        `POST /v1/signals/agents/{id}/signals`.
+
+        A create carrying any `profile_watch`, `follower_watch` or
+        `list_watch` entry resolves those targets live and consumes ONE unit
+        of the enrichment allowance (one per call, not per entry).
 
         Plan limits apply (403 `cap_reached`). Supports `Idempotency-Key`
         (max 64 chars): retries with the same key and body replay the
@@ -1817,6 +1832,12 @@ paths:
                     type: string
                     maxLength: 180
                   description: Plain-language descriptions of what the target customer posts about. Omit to auto-suggest from the ICP. Keywords beyond your plan's per-agent signal limit are dropped; the response lists the signals actually created.
+                signals:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items: { $ref: "#/components/schemas/SignalInput" }
+                  description: Non-keyword watches to add alongside `keywords`. Combined with `keywords`, at most 5 distinct entries.
                 destination_list_id:
                   type: string
                   description: Contact list id (from `GET /v1/contact-lists`) that receives the leads. Omit to auto-create one.
@@ -1852,6 +1873,10 @@ paths:
                           destination_list_created:
                             type: boolean
                             description: true when destination_list_id was omitted and a list was created for the agent.
+                          warnings:
+                            type: array
+                            description: Present only when at least one keyword or signal entry was rejected. The agent was created from the entries that landed.
+                            items: { $ref: "#/components/schemas/SignalWarning" }
               example:
                 data:
                   id: 12
@@ -1918,17 +1943,28 @@ paths:
   /v1/signals/agents/{id}:
     patch:
       tags: [Signals]
-      operationId: setSignalAgentStatus
-      summary: Pause or resume a signal agent
+      operationId: updateSignalAgent
+      summary: Update a signal agent
       description: |
-        Status-only lifecycle: `active` or `paused`. Paused agents stop
-        finding leads; resuming picks up where the agent left off (a resume
-        is rejected with `invalid_request` when the agent's destination list
-        is gone; point it at a new list in the SuperX app first). Other
-        fields (name, ICP, precision, destination) are edited in the SuperX
-        app. Naturally idempotent, so there is no `Idempotency-Key` support.
-        Works for your main account or any account linked to it
-        (`account_id`); accounts shared with you are read-only.
+        Edit an agent's `name`, `icp_description`, `precision_mode`,
+        `destination_list_id`, `status`, or any combination. At least one
+        field is required.
+
+        Editing the ICP changes how NEW leads are scored; leads already found
+        keep their scores. A `destination_list_id` that is not one of your
+        own usable lists returns 404 `list_not_found`. `status` is `active`
+        or `paused`: paused agents stop finding leads, and resuming picks up
+        where the agent left off (a resume is rejected with
+        `invalid_request` when the agent's stored destination list is gone -
+        send a new `destination_list_id` first).
+
+        The agent's SIGNALS are not edited here: each one resolves its target
+        upstream, so they have their own endpoints
+        (`POST /v1/signals/agents/{id}/signals`,
+        `DELETE /v1/signals/agents/{id}/signals/{signalId}`). Naturally
+        idempotent, so there is no `Idempotency-Key` support. Works for your
+        main account or any account linked to it (`account_id`); accounts
+        shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -1943,8 +1979,22 @@ paths:
           application/json:
             schema:
               type: object
-              required: [status]
+              minProperties: 1
               properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 80
+                icp_description:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                precision_mode:
+                  type: string
+                  enum: [high, discovery]
+                destination_list_id:
+                  type: string
+                  description: Contact list id (from `GET /v1/contact-lists`) that receives the leads.
                 status:
                   type: string
                   enum: [active, paused]
@@ -1966,7 +2016,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/WriteForbidden" }
-        "404": { $ref: "#/components/responses/AgentNotFound" }
+        "404": { $ref: "#/components/responses/AgentOrListNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -2015,6 +2065,206 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/WriteForbidden" }
         "404": { $ref: "#/components/responses/AgentNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/signals/agents/{id}/signals:
+    post:
+      tags: [Signals]
+      operationId: addSignalAgentSignal
+      summary: Add a signal to an agent
+      description: |
+        Add one thing for the agent to watch: a search (`keyword_watch`), an
+        account's posts (`profile_watch`), the people an account follows
+        (`follower_watch`), or the members of a public X list
+        (`list_watch`). New leads start arriving over the following minutes
+        and days; nothing is returned synchronously.
+
+        One target per call: each add resolves its target live or compiles
+        the search, so there is no batch form. Each plan caps how many
+        signals one agent may hold (403 `cap_reached`) and an agent may watch
+        each target once (409 `duplicate_signal`). `profile_watch`,
+        `follower_watch` and `list_watch` consume one unit of the enrichment
+        allowance; `keyword_watch` consumes none. Only PUBLIC X lists can be
+        watched.
+
+        No `Idempotency-Key`: the duplicate rule already makes a repeat
+        harmless. Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The signal agent's numeric id (from `GET /v1/signals/agents`).
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/SignalInput"
+                - type: object
+                  properties:
+                    account_id:
+                      type: string
+                      description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              type: follower_watch
+              handle: "naval"
+      responses:
+        "201":
+          description: The created signal.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SignalAgentSignal" }
+              example:
+                data:
+                  id: 118
+                  type: follower_watch
+                  handle: "naval"
+                  name: "Naval"
+                  avatar: "https://pbs.twimg.com/profile_images/..."
+                  query: null
+                  list_name: null
+                  status: active
+                  status_detail: null
+                  last_run_at: null
+                  created_at: "2026-09-07T10:00:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Read-only key (`insufficient_scope`), an account shared with you (`writes_main_account_only`), a lapsed subscription, or the agent's per-plan signal limit is reached (`cap_reached`).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/LegacyErrorEnvelope"
+              example:
+                error:
+                  code: cap_reached
+                  message: "This agent has reached its limit of 3 signals on the pro plan. Remove a signal in SuperX or upgrade your plan."
+        "404": { $ref: "#/components/responses/SignalTargetNotFound" }
+        "409": { $ref: "#/components/responses/DuplicateSignal" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/signals/agents/{id}/signals/{signalId}:
+    delete:
+      tags: [Signals]
+      operationId: removeSignalAgentSignal
+      summary: Remove a signal from an agent
+      description: |
+        Remove one signal. Leads it already found stay, and so does the
+        agent's de-duplication state. Removing the agent's LAST signal is
+        allowed: the agent stays, finding nothing, until a signal is added
+        back. Deleting the same id again returns 404 `signal_not_found`.
+        Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The signal agent's numeric id (from `GET /v1/signals/agents`).
+          schema:
+            type: integer
+        - name: signalId
+          in: path
+          required: true
+          description: The signal's numeric id (from the agent's `signals` in `GET /v1/signals/agents`).
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: The signal was removed.
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/SignalNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/signals/leads/{id}/feedback:
+    post:
+      tags: [Signals]
+      operationId: setSignalLeadFeedback
+      summary: Set feedback on a lead
+      description: |
+        Record the account's verdict on one lead - `fit`, `not_fit`, or
+        `null` to clear it.
+
+        The id is the numeric LEAD id from `GET /v1/signals/leads`, not the
+        person's X user id: the same person can be a lead of two agents with
+        a different verdict on each. The verdict is what the scorer's
+        examples and the lead sweep learn from, so it is worth recording on
+        leads you act on, and it is mirrored onto the person's row in the
+        agent's destination contact list. It reads back as `feedback` /
+        `feedback_at` on `GET /v1/signals/leads`.
+
+        Naturally idempotent (the verdict is a value, not a counter), so
+        there is no `Idempotency-Key` support. Works for your main account or
+        any account linked to it (`account_id`); accounts shared with you are
+        read-only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The lead's numeric id (from `GET /v1/signals/leads`).
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [feedback]
+              properties:
+                feedback:
+                  type: string
+                  nullable: true
+                  enum: [fit, not_fit, null]
+                  description: fit = a good lead, not_fit = a bad one, null clears the verdict.
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              feedback: fit
+      responses:
+        "200":
+          description: The stored verdict.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/LeadFeedback" }
+              example:
+                data:
+                  id: 4821
+                  feedback: fit
+                  feedback_at: "2026-09-07T10:00:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/LeadNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -2163,6 +2413,206 @@ paths:
         "404": { $ref: "#/components/responses/AccountNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+    post:
+      tags: [Engage]
+      operationId: createEngageFeed
+      summary: Create an Engage feed
+      description: |
+        Save a new Engage feed on the account: a set of keywords, a public X
+        list, or one of the account's own contact lists. The feed appears in
+        `GET /v1/engage/feeds`, can be fetched with
+        `GET /v1/engage/feeds/{id}/posts`, and shows up for the person in the
+        SuperX app's Engage tab.
+
+        The new feed does NOT become the feed the app has open: the API must
+        not move someone's view while they are working in it. The response
+        carries the account's current `active` feed unchanged.
+
+        Send exactly ONE source: `keywords` (1-5), `x_list_id` or
+        `x_list_url`, or `list_id`. `type` must agree with the fields you
+        send. An X list is looked up live and only PUBLIC lists are accepted,
+        so those calls also consume one unit of the tighter enrichment
+        allowance; keyword and contact-list feeds consume none. Up to 8 feeds
+        per account. Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+                  description: Feed name shown in SuperX.
+                type:
+                  type: string
+                  enum: [keywords, x_list, list]
+                  description: Must match the source fields sent below.
+                keywords:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items:
+                    type: string
+                    maxLength: 100
+                  description: For type keywords. Trimmed, de-duplicated case-insensitively.
+                x_list_id:
+                  type: string
+                  description: For type x_list. A numeric X list id. Use this OR x_list_url.
+                x_list_url:
+                  type: string
+                  description: For type x_list. A link like https://x.com/i/lists/1234567890.
+                list_id:
+                  type: string
+                  description: For type list. A contact list id from `GET /v1/contact-lists`.
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              name: "Bootstrapped SaaS"
+              type: keywords
+              keywords: ["bootstrapped saas", "indie hackers"]
+      responses:
+        "201":
+          description: The created feed. `active` is false unless the account had no active feed.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/EngageFeed" }
+              example:
+                data:
+                  id: "V1StGXR8_Z5jdHi6B-myT"
+                  name: "Bootstrapped SaaS"
+                  type: keywords
+                  keywords: ["bootstrapped saas", "indie hackers"]
+                  active: false
+                  fetch_units: 1
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/FeedSourceNotFound" }
+        "409": { $ref: "#/components/responses/FeedLimitReached" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/engage/feeds/{id}:
+    patch:
+      tags: [Engage]
+      operationId: updateEngageFeed
+      summary: Update an Engage feed
+      description: |
+        Rename a saved feed, replace what it watches, or both. Send at most
+        ONE source family per call (`keywords`, `x_list_id`/`x_list_url`, or
+        `list_id`); two families in one body is a 400, because the intent is
+        ambiguous. The feed keeps its id and its place in the account's feed
+        list, so a feed may change type and anything holding its id keeps
+        working. The active feed is not changed.
+
+        Swapping in an X list is a live lookup (public lists only) and
+        consumes one unit of the enrichment allowance. Naturally idempotent,
+        so there is no `Idempotency-Key` support. Works for your main account
+        or any account linked to it (`account_id`); accounts shared with you
+        are read-only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The feed id (from `GET /v1/engage/feeds`).
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 40
+                keywords:
+                  type: array
+                  minItems: 1
+                  maxItems: 5
+                  items:
+                    type: string
+                    maxLength: 100
+                  description: Replace the feed's keywords (makes it a keyword feed).
+                x_list_id:
+                  type: string
+                  description: Point the feed at this numeric X list id. Use this OR x_list_url.
+                x_list_url:
+                  type: string
+                  description: Point the feed at this X list link.
+                list_id:
+                  type: string
+                  description: Point the feed at this contact list.
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              name: "Bootstrapped SaaS 2026"
+      responses:
+        "200":
+          description: The updated feed.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/EngageFeed" }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/FeedSourceNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+    delete:
+      tags: [Engage]
+      operationId: deleteEngageFeed
+      summary: Delete an Engage feed
+      description: |
+        Remove a saved feed. If it was the feed the SuperX app has open, the
+        first remaining feed takes over (or none, when the last feed goes).
+        Posts the feed surfaced are not stored on it and are unaffected.
+        Deleting the same id again returns 404 `feed_not_found`. Works for
+        your main account or any account linked to it (`account_id`);
+        accounts shared with you are read-only.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The feed id (from `GET /v1/engage/feeds`).
+          schema: { type: string }
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "204":
+          description: The feed was deleted.
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/FeedNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
@@ -4658,7 +5108,7 @@ paths:
       operationId: generateArticleCover
       summary: Generate an AI cover image
       description: |
-        Generates a 2.5:1 cover image from the article's TITLE (a title is required) and, by default, attaches it as the article's cover. `attach: false` generates without touching the current cover; attach later via PATCH `cover_url`. `style_text` (max 8000 chars) steers the artwork.
+        Generates a 2.5:1 cover image from the article's TITLE (a title is required) and, by default, attaches it as the article's cover. `attach: false` generates without touching the current cover; attach later via PATCH `cover_url`. Steer the artwork with `style_id` (one of the account's saved styles, from `GET /v1/cover-styles`) or `style_text` (a one-off description, max 8000 chars) - sending BOTH is a 400, so the request always says exactly which look was rendered. An unknown `style_id` returns 404 `cover_style_not_found`.
 
         Slow (60-100 seconds) and paid: spends AI credits (about 25 per generation) against daily and monthly caps, all enforced server-side. Cap 429s carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month`; a credit 429 carries `credits_required` / `credits_remaining` / `reset_at`. Supports `Idempotency-Key`, recommended. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
@@ -4674,10 +5124,15 @@ paths:
             schema:
               type: object
               properties:
+                style_id:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  description: A saved cover style id from `GET /v1/cover-styles`. Not accepted together with style_text.
                 style_text:
                   type: string
                   maxLength: 8000
-                  description: Optional style description steering the artwork.
+                  description: Optional one-off style description steering the artwork. Not accepted together with style_id.
                 attach:
                   type: boolean
                   default: true
@@ -4730,7 +5185,7 @@ paths:
                 error:
                   code: insufficient_scope
                   message: "This API key is read-only. Create a key with the write scope to use this endpoint."
-        "404": { $ref: "#/components/responses/ArticleNotFound" }
+        "404": { $ref: "#/components/responses/ArticleOrCoverStyleNotFound" }
         "409":
           description: A cover is already being generated for this article (`cover_gen_in_progress`), or the Idempotency-Key was reused with a different body.
           content:
@@ -4781,6 +5236,54 @@ paths:
                 error:
                   code: upstream_timeout
                   message: "Cover generation did not respond in time and may still have completed. GET the article to check its cover before retrying."
+
+  /v1/cover-styles:
+    get:
+      tags: [Articles]
+      operationId: listCoverStyles
+      summary: List saved cover styles
+      description: |
+        The article cover styles the account saved in the SuperX app: the art
+        direction of a cover it kept, or a description it typed, with a
+        thumbnail. Pass a style's `id` as `style_id` to
+        `POST /v1/articles/{id}/cover` to render in that look.
+
+        The style's own prompt text never leaves SuperX: styles are applied
+        by id, exactly as the app applies them. Styles are saved and deleted
+        in the app; this endpoint only reads them. Not paginated (styles are
+        capped per account).
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The account's saved cover styles, newest first.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CoverStyle" }
+              example:
+                data:
+                  - id: "V1StGXR8_Z5jdHi6B-myT"
+                    name: "Dark geometric"
+                    thumbnail_url: "https://media.superx.so/cover-styles/example.jpg"
+                    source: cover
+                    created_at: "2026-08-14T09:00:00.000Z"
+                    last_used_at: "2026-09-01T12:30:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
   /v1/docs:
     get:
@@ -5675,6 +6178,16 @@ components:
           type: string
           format: date-time
           nullable: true
+        feedback:
+          type: string
+          nullable: true
+          enum: [fit, not_fit, null]
+          description: The account's own verdict on this lead, set through `POST /v1/signals/leads/{id}/feedback`. Null when no verdict was recorded.
+        feedback_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the verdict was recorded.
         provenance:
           type: object
           nullable: true
@@ -5698,6 +6211,86 @@ components:
             target_handle:
               type: string
               nullable: true
+
+    SignalInput:
+      type: object
+      required: [type]
+      description: >-
+        One thing for a signal agent to watch. The target field depends on
+        `type`: `query` for keyword_watch, `handle` for profile_watch and
+        follower_watch, `list` for list_watch.
+      properties:
+        type:
+          type: string
+          enum: [keyword_watch, profile_watch, follower_watch, list_watch]
+        query:
+          type: string
+          maxLength: 180
+          description: keyword_watch only. A plain-language description of what the target customer posts about, or an X search. Operators pass through; engagement filters such as min_faves are rejected.
+        handle:
+          type: string
+          maxLength: 15
+          description: profile_watch and follower_watch only. An X username, with or without a leading @.
+        list:
+          type: string
+          description: list_watch only. A public X list id, or a link like https://x.com/i/lists/1234567890.
+
+    SignalWarning:
+      type: object
+      description: One entry a create could not add. The agent was still created from the entries that landed.
+      properties:
+        type:
+          type: string
+          description: The signal type of the rejected entry.
+        target:
+          type: string
+          description: The query, handle, or list reference as you sent it.
+        code:
+          type: string
+          description: >-
+            Why it was rejected: `user_not_found`, `x_list_not_found`,
+            `duplicate_signal`, `cap_reached`, `invalid_parameter`,
+            `agent_not_found`, `upstream_unavailable`, or `upstream_error`.
+
+    LeadFeedback:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: The lead id.
+        feedback:
+          type: string
+          nullable: true
+          enum: [fit, not_fit, null]
+        feedback_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CoverStyle:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Pass this as `style_id` to POST /v1/articles/{id}/cover.
+        name:
+          type: string
+        thumbnail_url:
+          type: string
+          nullable: true
+          description: A preview image of the style. Null until a render made with it backfills one.
+        source:
+          type: string
+          nullable: true
+          description: "`cover` = saved from a generated cover, `custom` = typed by hand."
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
 
     EngageFeed:
       type: object
@@ -6388,6 +6981,98 @@ components:
             error:
               code: feed_not_found
               message: "No Engage feed with that id belongs to this account."
+
+    FeedSourceNotFound:
+      description: >-
+        The feed's source could not be resolved: the X list is private,
+        deleted, or never existed (`x_list_not_found`), the `list_id` is not
+        one of your contact lists (`list_not_found`), the feed id is not one
+        of your feeds (`feed_not_found`, on update), or account_id is not one
+        of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: x_list_not_found
+              message: "That X list is private or unavailable. Only public lists can be used as a feed."
+
+    FeedLimitReached:
+      description: The account already holds the maximum number of saved Engage feeds (8).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: feed_limit_reached
+              message: "This account already has the maximum number of saved Engage feeds. Delete one before adding another."
+
+    AgentOrListNotFound:
+      description: >-
+        The agent id is not one of your signal agents (`agent_not_found`),
+        the `destination_list_id` is not one of your usable contact lists
+        (`list_not_found`), or account_id is not one of your accounts
+        (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: list_not_found
+              message: "No contact list with that id belongs to this account. List yours at /v1/contact-lists."
+
+    SignalTargetNotFound:
+      description: >-
+        The agent id is not one of your signal agents (`agent_not_found`),
+        the handle did not match an X account (`user_not_found`), or the X
+        list is private or unavailable (`x_list_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: user_not_found
+              message: "No X account matches that handle."
+
+    SignalNotFound:
+      description: The agent id is not one of your signal agents (`agent_not_found`), or the signal id does not belong to that agent (`signal_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: signal_not_found
+              message: "No signal with that id belongs to this agent."
+
+    DuplicateSignal:
+      description: The agent already watches that target. An agent may hold each target once.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: duplicate_signal
+              message: "This agent already watches that target. List the agent's signals at /v1/signals/agents."
+
+    LeadNotFound:
+      description: No lead with that id belongs to this account (`lead_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: lead_not_found
+              message: "No lead with that id belongs to this account. List leads at /v1/signals/leads."
+
+    ArticleOrCoverStyleNotFound:
+      description: No article with that id belongs to this account (`article_not_found`), or the `style_id` is not one of your saved cover styles (`cover_style_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: cover_style_not_found
+              message: "No saved cover style with that id belongs to this account. List them at /v1/cover-styles."
 
     FeedRateLimited:
       description: >-

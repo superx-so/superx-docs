@@ -50,6 +50,9 @@ The credentials file takes priority over the environment variable when both exis
 | `superx inspiration:search <query>` | Search a library of 50M+ high-performing posts for inspiration |
 | `superx engage:feeds` | List the Engage feeds saved in the SuperX app (id, name, type, active, fetch_units) |
 | `superx engage:posts <feed-id>` | Fetch candidate posts from one Engage feed for review (`--limit`, `--mode top` or `latest`, `--fresh`, `--exclude` ids to page); replies are sent by a person in SuperX |
+| `superx engage:feeds:create` | Save a new Engage feed (`--name` plus exactly one source: repeatable `--keyword`, `--x-list` id or link, or `--list-id`); it does not become the feed the app has open |
+| `superx engage:feeds:update <feed-id>` | Rename a feed or point it somewhere else (`--name`, and one of `--keyword`, `--x-list`, `--list-id`); the feed keeps its id |
+| `superx engage:feeds:delete <feed-id>` | Delete an Engage feed; if it was the open one, the first remaining feed takes over |
 | `superx contacts:list` | List the people who engage with you most |
 | `superx contacts:replies <id>` | List a contact's replies to you (their id from `contacts:list`) |
 | `superx contacts:get <id>` | Show one person: profile, follower counts and the lists they are in (`--refresh` refreshes a stale profile from X). Known contacts only: ids come from `contacts:list`, `lists:members` or `signals:leads` |
@@ -68,7 +71,11 @@ The credentials file takes priority over the environment variable when both exis
 | `superx lists:remove-members <id>` | Remove up to 500 members at once (`--member-ids` comma list from `lists:members`) |
 | `superx signals:agents` | List your signal agents (automated lead finders) with their watched signals |
 | `superx signals:leads` | List the leads your signal agents have found (`--agent`, `--deposited`, `--since`/`--until` filters) |
-| `superx signals:create-agent` | Create a signal agent (`--name`, `--icp` required; repeat `--keyword` for 1-5 watches or omit to auto-suggest; `--list-id` or omit to auto-create a list) |
+| `superx signals:create-agent` | Create a signal agent (`--name`, `--icp` required; repeat `--keyword` for searches and `--signal "type:target"` for the other watch types, 1-5 combined, or omit both to auto-suggest; `--list-id` or omit to auto-create a list) |
+| `superx signals:update-agent <id>` | Edit an agent's `--name`, `--icp`, `--precision`, `--list-id` or `--status` |
+| `superx signals:add-signal <id>` | Add one thing to watch (`--type keyword_watch --query`, `profile_watch`/`follower_watch --handle`, or `list_watch --list`) |
+| `superx signals:remove-signal <id> <signalId>` | Remove one signal from an agent (leads it already found stay) |
+| `superx signals:feedback <leadId>` | Record your verdict on one lead (`--fit`, `--not-fit` or `--clear`); the id comes from `signals:leads` |
 | `superx signals:pause-agent <id>` | Pause a signal agent (it stops finding leads until resumed) |
 | `superx signals:resume-agent <id>` | Resume a paused signal agent |
 | `superx signals:delete-agent <id>` | Delete a signal agent (its saved leads and contact list stay untouched) |
@@ -102,7 +109,8 @@ The credentials file takes priority over the environment variable when both exis
 | `superx articles:schedule <id>` | Schedule or reschedule an article (`--at`, more than 2 minutes ahead) |
 | `superx articles:unschedule <id>` | Pull a scheduled article back to draft (quota refunds) |
 | `superx articles:publish <id>` | Publish an article to X now (irreversible; needs X Premium) |
-| `superx articles:cover <id>` | Generate an AI cover from the title (60-100s, spends AI credits; `--no-attach` to skip attaching) |
+| `superx articles:cover-styles` | List the article cover styles saved in the SuperX app (ids for `--style-id`) |
+| `superx articles:cover <id>` | Generate an AI cover from the title (60-100s, spends AI credits; `--style-id` a saved style or `--style` a one-off description, never both; `--no-attach` to skip attaching) |
 | `superx docs` | Print the SuperX API quickstart (markdown, no auth needed) |
 
 Flags mirror the API's query parameters: `--account`, `--limit`, `--page`, `--since`/`--until`, `--sort`, `--type`, `--status`, `--from`/`--to`. Run any command with `--help` for its full flag list and examples.
@@ -116,6 +124,8 @@ To post an image: `superx media:upload ./chart.png` prints an `object_key`, then
 The three bulk commands only touch posts in the QUEUE: drafts, sent posts and error rows are counted as skipped and are never retimed or deleted, and `scheduled:bulk-auto-retweet` also skips posts that already have their own auto retweet. Posts created through the CLI or API inherit the account's Default Post Settings, so if Auto Retweet is on there every one of them already carries an auto retweet and comes back as skipped: create them with `--no-auto-retweet` (or clear it with `scheduled:update --no-auto-retweet`) if you want to bulk-apply a different one. They answer with counts rather than per-post results, so re-read with `scheduled:list` to see the new state. None of them takes an idempotency key: re-running the same call converges.
 
 Advanced settings on `scheduled:create`: flags you omit inherit your Default Post Settings from the SuperX app. Exactly five settings inherit this way (auto retweet, auto delete, auto plug, auto DM, Super Followers only); other composer defaults such as Bluesky cross-posting or share-with-followers are never applied to API posts. `--auto-retweet <hours>` (1-12, plus `--auto-retweet-remove <hours>`), `--auto-delete <hours>` (1-12, plus `--auto-delete-threshold <views>`, default 1000), `--auto-plug <templateId>` with `--auto-plug-threshold <likes>` (template ids from `plug-templates:list`), and `--super-followers` set explicit values; the `--no-*` forms (`--no-auto-retweet`, `--no-auto-delete`, `--no-auto-plug`, `--no-super-followers`) turn a setting off for that post. On `scheduled:update` there is no inheritance: flags you pass override, omitted flags keep the post's current settings, and `--no-*` removes them. Auto DM always follows your app defaults; if a plan limit strips it at create time, the response carries `auto_dm_skipped: true`.
+
+Engage feeds and signals: `engage:feeds:create` saves a feed but deliberately does not switch the feed the person has open in the app, so tell them where to find it. Up to 8 feeds per account, `engage:feeds:update` changes one source at a time (a feed may change type and keeps its id), and deleting the open feed hands the slot to the first remaining one. An `--x-list` source and the `profile_watch`, `follower_watch` and `list_watch` signal types are looked up live: those calls spend one unit of the tighter enrichment allowance and only PUBLIC X lists work. `signals:create-agent` is a partial success, so read the `warnings` array before reporting what an agent watches and re-add the fixed entries with `signals:add-signal`. `signals:feedback` trains the scorer, so ask the person for the verdict rather than deciding for them.
 
 Article bodies are markdown in both directions: headings, lists, blockquotes, bold/italic/strikethrough, links, images by URL, and bare X post URLs as embeds. Constructs the X Articles format cannot express (code blocks, horizontal rules) degrade to plain text and are reported in a `warnings` array.
 

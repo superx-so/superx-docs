@@ -56,15 +56,26 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 403 | `onboarding_required` | Finish onboarding in the SuperX app before scheduling posts |
 | 403 | `post_quota_exceeded` | Post quota for the billing period is used up |
 | 403 | `reauth_required` | The connected X account must be re-authorized in the SuperX app before it can publish. Returned by `scheduled_for: "now"` and article publishing |
+| 403 | `cap_reached` | A plan limit on signal agents, or on the signals one agent may hold, is reached. Pause or delete one, or upgrade |
 | 403 | (legacy string) | Subscription lapsed; see above |
 | 404 | `account_not_found` | `account_id` is not one of your accounts |
 | 404 | `not_found` | No such resource for this account (for example a scheduled post id) |
 | 404 | `contact_not_found` | The id is not one of the account's contacts. Returned by `GET /v1/contacts/{id}` and `POST /v1/contacts/{id}/notes`; contacts are your engagers, contact-list members and signal leads |
 | 404 | `note_not_found` | No note with that id belongs to the contact in the path |
+| 404 | `list_not_found` | The contact list id is not one of your lists. Also returned when a signal agent's `destination_list_id` is not usable |
+| 404 | `feed_not_found` | No Engage feed with that id belongs to this account |
+| 404 | `x_list_not_found` | The X list is private, deleted, or never existed. Only public X lists can be used as an Engage feed source or a `list_watch` signal |
+| 404 | `user_not_found` | No X account matches that handle (contact-list adds, `profile_watch` / `follower_watch` signals) |
+| 404 | `agent_not_found` | The agent id is not one of your signal agents |
+| 404 | `signal_not_found` | The signal id does not belong to the agent in the path |
+| 404 | `lead_not_found` | No lead with that id belongs to this account. Lead ids come from `GET /v1/signals/leads` and are not X user ids |
+| 404 | `cover_style_not_found` | The `style_id` is not one of your saved cover styles; list them at `GET /v1/cover-styles` |
 | 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
 | 409 | `idempotency_in_flight` | An earlier request with this `Idempotency-Key` is still publishing. Wait for the `Retry-After` delay and retry the SAME key; it will never publish twice |
 | 409 | `post_already_published` | The post has already gone out on X, so it cannot be published again |
 | 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
+| 409 | `duplicate_signal` | The agent already watches that target. An agent may hold each target once |
+| 409 | `feed_limit_reached` | The account already holds the maximum number of saved Engage feeds (8). Delete one first |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
 | 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting). Carries `credits_required`, `credits_remaining` and `reset_at`, plus a `Retry-After` header. See [Credits](/rate-limits#credits) |
