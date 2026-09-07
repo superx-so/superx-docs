@@ -10,16 +10,16 @@ Contact detail is limited to your own contacts:
 **API**
 
 - `GET /v1/contacts/{id}` now returns 404 `contact_not_found` unless the id is one of the account's known contacts: someone who has replied to or reposted its posts, a member of one of its contact lists (manual or system), or a scored signal lead. It is not a general X profile lookup, so an id SuperX holds a cached profile for is still a 404 when the account has no relationship with that person. A lookup endpoint for arbitrary ids will come separately
-- The same gate covers the contact notes endpoints (`GET`/`POST /v1/contacts/{id}/notes`, `PATCH`/`DELETE /v1/contacts/{id}/notes/{noteId}`): notes exist only for known contacts, so an id outside that set returns 404 `contact_not_found`
+- Creating a note (`POST /v1/contacts/{id}/notes`) uses the same gate: you can only start a note on a known contact, so any other id returns 404 `contact_not_found`. Reading, editing and deleting notes are NOT gated - they work on any id the account already has a note on, so a note stays reachable if that person later drops out of your contacts, and listing an id with no notes returns an empty array
 - The `refresh=true` enrichment unit is charged only after the contact gate passes, so an id outside your contacts does not spend one.
 
 **MCP**
 
-- `get_contact` and the four contact-note tools follow the same rule and their descriptions now say so. Pass ids from `get_top_contacts`, `get_contact_list_members` or `get_signal_leads`
+- `get_contact` and `add_contact_note` follow the same rule and their descriptions now say so; `list_contact_notes`, `update_contact_note` and `delete_contact_note` work on any id with an existing note. Pass ids from `get_top_contacts`, `get_contact_list_members` or `get_signal_leads`
 
 **CLI**
 
-- `superx contacts:get <id>` and `superx contacts:notes*` inherit the same 404
+- `superx contacts:get <id>` and `superx contacts:notes:add` inherit the same 404; the other `contacts:notes*` commands are unrestricted
 
 ## 2026-09-06
 

@@ -961,10 +961,10 @@ paths:
         first. Notes live inside SuperX and are never posted anywhere. Not
         paginated: notes are per-contact and few.
 
-        Notes exist only for the account's known contacts (its engagers,
-        contact-list members and signal leads), so an id outside that set
-        returns 404 `contact_not_found`, the same rule
-        `GET /v1/contacts/{id}` follows.
+        Works for any X id the account already has a note on, whether or not
+        that person is still one of its contacts; an id with no notes returns
+        an empty array, not a 404. Only creating a note requires a known
+        contact.
       parameters:
         - name: id
           in: path
@@ -1000,7 +1000,7 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/SubscriptionRequired" }
-        "404": { $ref: "#/components/responses/ContactNotFound" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -1013,9 +1013,11 @@ paths:
         account it was written as (`created_by`), which for an API write is the
         account named by `account_id` (your main account when omitted).
 
-        Notes exist only for the account's known contacts (its engagers,
-        contact-list members and signal leads), so an id outside that set
-        returns 404 `contact_not_found`.
+        Creating a note requires a KNOWN contact: the id must be one of the
+        account's engagers, contact-list members or signal leads, so an id
+        outside that set returns 404 `contact_not_found`. This is the only
+        note operation with that restriction - reading, editing and deleting
+        work on any id the account already has a note on.
 
         No `Idempotency-Key`: notes have no uniqueness constraint, so a replay
         creates a second note. Duplicates are visible in the list read and
@@ -1078,9 +1080,10 @@ paths:
       summary: Edit a note on a contact
       description: |
         Replace one note's body. The note must belong to the contact in the
-        path: a note id from another contact returns 404 `note_not_found`, and
-        an id outside the account's known contacts returns 404
-        `contact_not_found`.
+        path: a note id from another contact returns 404 `note_not_found`.
+        That is the only check - editing works on any id the account already
+        has a note on, whether or not that person is still one of its
+        contacts.
         Works for your main account or any account linked to it; accounts
         shared with you are read-only. Needs the write scope.
       parameters:
@@ -1143,9 +1146,10 @@ paths:
       summary: Delete a note on a contact
       description: |
         Returns 204 with no body. Deleting an already-deleted note, or a note
-        belonging to another contact, returns 404 `note_not_found`; an id
-        outside the account's known contacts returns 404
-        `contact_not_found`. Works for
+        belonging to another contact, returns 404 `note_not_found`. That is
+        the only check - deleting works on any id the account already has a
+        note on, whether or not that person is still one of its contacts.
+        Works for
         your main account or any account linked to it; accounts shared with you
         are read-only. Needs the write scope.
       parameters:
@@ -5949,7 +5953,7 @@ components:
               message: "No contact with that id belongs to this account. Contacts are the account's engagers, contact-list members and signal leads."
 
     NoteNotFound:
-      description: No note with that id belongs to this contact (`note_not_found`), the id is not one of the account's known contacts (`contact_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      description: No note with that id belongs to this contact (`note_not_found`), or account_id is not one of your accounts (`account_not_found`).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
