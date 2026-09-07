@@ -521,7 +521,20 @@ paths:
       tags: [Content]
       operationId: listReplies
       summary: List replies you sent
-      description: Replies the selected account has posted, newest first.
+      description: |
+        Replies the selected account has posted, newest first.
+
+        Page 1 of an unfiltered listing also includes replies sent from the
+        SuperX app's Engage tab in the last 4 hours. Those live only in
+        SuperX until X reports the post back, so without them the newest
+        replies would be missing here while the app already shows them. They
+        carry `metrics_pending: true` with all-zero `metrics` (nothing is
+        measured yet), and because they are prepended, page 1 can return more
+        than `limit` items; `has_more` still describes the stored replies
+        only. Later pages and any `since`/`until` query never include them.
+        Merged replies are deduplicated against page 1 only, so one that has
+        already been stored and pushed onto page 2 can appear twice across
+        pages: deduplicate by `id` if you page through the whole list.
       parameters:
         - $ref: "#/components/parameters/AccountId"
         - $ref: "#/components/parameters/Since"
@@ -2501,13 +2514,32 @@ paths:
     post:
       tags: [Scheduling]
       operationId: createScheduledPost
-      summary: Create a draft or scheduled post
+      summary: Create a draft or scheduled post, or publish now
       description: |
         Creates a post: a draft when `scheduled_for` is omitted, a scheduled
         post otherwise. Works for your main account or any account linked to it
         (`account_id`); accounts shared with you are read-only. Supports the
         `Idempotency-Key` header for safe retries (see the Idempotency guide).
         Successful creation returns `201`.
+
+        **Publishing now.** Send `scheduled_for: "now"` and the post goes to X
+        immediately. This is irreversible, so the rules are tighter:
+
+        - `Idempotency-Key` is REQUIRED (`400 invalid_parameter` without it).
+          Reuse the same key on any retry: it never publishes twice.
+        - `title` and `scratchpad` are rejected with `400` (a published post
+          has no draft to organize), and Bluesky is never cross-posted.
+        - A retry that arrives while the first attempt is still publishing
+          returns `409 idempotency_in_flight` with a `Retry-After` header.
+          After that window the API checks whether the first attempt landed
+          and replays its result instead of posting again.
+        - The `201` carries `status: "sent"` with `posted_at`, `x_post_id`
+          and `url`, and `scheduled_for: null`.
+        - Advanced settings and Auto DM inherit your Default Post Settings
+          exactly as they do for a scheduled post.
+        - A thread that fails part way through leaves no scheduled-post record
+          at all, so check `GET /v1/posts` before retrying: the parts X did
+          accept are already live.
 
         Images attach per part: `parts[].media` is an array of
         `{ object_key, alt_text? }` items, with `object_key` from
@@ -2570,9 +2602,17 @@ paths:
                               maxLength: 1000
                               description: Accessibility description delivered to X with the image.
                 scheduled_for:
-                  type: string
-                  format: date-time
-                  description: UTC ISO-8601 with explicit Z or offset. At least 60 seconds in the future, at most 18 months out. Omit to create a draft.
+                  description: >-
+                    UTC ISO-8601 with explicit Z or offset: at least 60
+                    seconds in the future, at most 18 months out. Omit to
+                    create a draft. The literal string `"now"` publishes to X
+                    immediately and requires an `Idempotency-Key` (see the
+                    operation description).
+                  oneOf:
+                    - type: string
+                      format: date-time
+                    - type: string
+                      enum: ["now"]
                 title:
                   type: string
                   maxLength: 300
@@ -2672,6 +2712,11 @@ paths:
                   auto_retweet: { after_hours: 6, remove_after_hours: 4 }
                   auto_plug: { template_id: "tpl_abc123", threshold: 50 }
                   auto_delete: null
+              publish_now:
+                summary: Publish immediately (Idempotency-Key required)
+                value:
+                  text: "Shipping now."
+                  scheduled_for: "now"
       responses:
         "201":
           description: >-
@@ -2679,7 +2724,8 @@ paths:
             row). Replayed idempotent requests also return this body with the
             "Idempotency-Replayed" header set to "true". Applied advanced
             settings, inherited or explicit, are NOT echoed here; read them
-            back via GET /v1/scheduled-posts.
+            back via GET /v1/scheduled-posts, adding `?status=sent` for a post
+            published with `scheduled_for: "now"`.
           headers:
             Idempotency-Replayed:
               description: Present and "true" when this response was replayed from a previous request with the same Idempotency-Key.
@@ -2700,11 +2746,13 @@ paths:
                         type: string
                       status:
                         type: string
-                        enum: [draft, scheduled]
+                        enum: [draft, scheduled, sent]
+                        description: '`sent` only for `scheduled_for: "now"`.'
                       scheduled_for:
                         type: string
                         format: date-time
                         nullable: true
+                        description: 'Null for a draft and for a post published with `scheduled_for: "now"`.'
                       parts:
                         type: array
                         items:
@@ -2750,12 +2798,28 @@ paths:
                       created_at:
                         type: string
                         format: date-time
+                      posted_at:
+                        type: string
+                        format: date-time
+                        nullable: true
+                        description: 'When the post went out. Present only for `scheduled_for: "now"`.'
+                      x_post_id:
+                        type: string
+                        nullable: true
+                        description: 'The X post id. Present only for `scheduled_for: "now"`.'
+                      url:
+                        type: string
+                        nullable: true
+                        description: 'Permalink to the post on X. Present only for `scheduled_for: "now"`.'
                       auto_dm_skipped:
                         type: boolean
                         description: >-
                           Present (and true) only when a plan limit stripped
                           the inherited Auto DM from this post. Absent
-                          otherwise.
+                          otherwise, and always absent from a result the API
+                          recovered after an interrupted publish (the flag is
+                          not stored on the post), so treat its absence as
+                          "unknown" on a retried request.
               example:
                 data:
                   id: "V1StGXR8_Z5jdHi6B-myT"
@@ -2789,8 +2853,9 @@ paths:
             (`writes_main_account_only`; shared accounts are read-only through
             the API, your own linked accounts are not), onboarding not finished
             (`onboarding_required`), post quota used up
-            (`post_quota_exceeded`), or a lapsed subscription (legacy string
-            envelope).
+            (`post_quota_exceeded`), the connected X account needing to be
+            re-authorized in the SuperX app (`reauth_required`, publishing
+            only), or a lapsed subscription (legacy string envelope).
           content:
             application/json:
               schema:
@@ -2803,7 +2868,18 @@ paths:
                   message: "Accounts shared with you are read-only through the API. Writes work on your own main and linked accounts."
         "404": { $ref: "#/components/responses/AccountNotFound" }
         "409":
-          description: The Idempotency-Key was already used with a different request body.
+          description: >-
+            The Idempotency-Key was already used with a different request body
+            (`idempotency_key_reuse`); or, when publishing now, an earlier
+            request with the same key is still publishing
+            (`idempotency_in_flight`, with a `Retry-After` header: wait, then
+            retry the SAME key) or the post has already been published
+            (`post_already_published`).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying, on `idempotency_in_flight`.
+              schema:
+                type: integer
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -2813,6 +2889,237 @@ paths:
                   message: "This Idempotency-Key was already used with a different request body."
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/scheduled-posts/bulk/retime:
+    post:
+      tags: [Scheduling]
+      operationId: bulkRetimeScheduledPosts
+      summary: Retime queued posts in bulk
+      description: |
+        Moves up to 500 queued posts to new times in ONE transaction: either
+        every move lands or none do.
+
+        Only posts in the queue move. Drafts, sent posts and error rows are
+        counted in `skipped` and are never retimed. Each `scheduled_for`
+        follows the same window as a single create: at least 60 seconds in the
+        future, at most 18 months out.
+
+        Costs one write. `Idempotency-Key` is not supported and not needed:
+        re-running the same moves converges on the same result.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [moves]
+              properties:
+                moves:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  description: The moves to apply. Post ids must be unique within one call.
+                  items:
+                    type: object
+                    required: [id, scheduled_for]
+                    properties:
+                      id:
+                        type: string
+                        description: Post id (from `GET /v1/scheduled-posts`).
+                      scheduled_for:
+                        type: string
+                        format: date-time
+                        description: New time, UTC ISO-8601 with explicit Z or offset.
+                account_id:
+                  type: string
+                  description: Any account you own. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              moves:
+                - id: "V1StGXR8_Z5jdHi6B-myT"
+                  scheduled_for: "2026-09-08T15:00:00Z"
+                - id: "Fq2xWnA0kLpR7sVtYu3zc"
+                  scheduled_for: "2026-09-08T18:30:00Z"
+      responses:
+        "200":
+          description: How many posts moved and how many were skipped.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      updated:
+                        type: integer
+                      skipped:
+                        type: integer
+              example:
+                data: { updated: 2, skipped: 0 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/scheduled-posts/bulk/auto-retweet:
+    post:
+      tags: [Scheduling]
+      operationId: bulkEnableAutoRetweet
+      summary: Enable auto retweet on queued posts in bulk
+      description: |
+        Turns Auto Retweet on for up to 100 queued posts at once.
+
+        A post that already carries its own auto retweet is counted in
+        `skipped` and left untouched: this never overwrites a per-post
+        setting. Only posts in the queue are changed, so drafts, sent posts
+        and error rows are counted in `skipped` too. `failed` counts posts
+        whose stored settings could not be read.
+
+        Worth knowing: posts created through the API inherit the account's
+        Default Post Settings, so if Auto Retweet is on there, every API post
+        already carries one and this endpoint reports them all as `skipped`.
+        To bulk-apply a different auto retweet, create the posts with
+        `auto_retweet: null` (or clear each one with
+        `PATCH /v1/scheduled-posts/{id}`) first.
+
+        Costs one write. `Idempotency-Key` is not supported and not needed:
+        a second run skips everything the first one set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, auto_retweet]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  description: Post ids (from `GET /v1/scheduled-posts`). Repeated ids are deduplicated.
+                  items:
+                    type: string
+                auto_retweet:
+                  type: object
+                  required: [after_hours]
+                  description: The auto retweet to apply to every listed post.
+                  properties:
+                    after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                      description: Retweet each post this many hours after it goes live.
+                    remove_after_hours:
+                      type: integer
+                      minimum: 1
+                      maximum: 12
+                      description: Remove the retweet this many hours later. Omit to keep it.
+                account_id:
+                  type: string
+                  description: Any account you own. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              ids: ["V1StGXR8_Z5jdHi6B-myT", "Fq2xWnA0kLpR7sVtYu3zc"]
+              auto_retweet: { after_hours: 6, remove_after_hours: 4 }
+      responses:
+        "200":
+          description: How many posts were changed, skipped and failed.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      updated:
+                        type: integer
+                      skipped:
+                        type: integer
+                      failed:
+                        type: integer
+              example:
+                data: { updated: 1, skipped: 1, failed: 0 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/scheduled-posts/bulk/delete:
+    post:
+      tags: [Scheduling]
+      operationId: bulkDeleteScheduledPosts
+      summary: Delete queued posts in bulk
+      description: |
+        Deletes up to 100 QUEUED posts at once and refunds their post quota.
+        `POST`, not `DELETE`, because the ids travel in a body.
+
+        Only posts in the queue are deleted: a leaked id for a sent post
+        cannot wipe history, and drafts are left alone (delete those with
+        `DELETE /v1/scheduled-posts/{id}`). `deleted` can therefore be lower
+        than the number of ids you sent.
+
+        Costs one write. `Idempotency-Key` is not supported and not needed:
+        deleting an already-deleted id is a no-op.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  description: Post ids (from `GET /v1/scheduled-posts`). Repeated ids are deduplicated.
+                  items:
+                    type: string
+                account_id:
+                  type: string
+                  description: Any account you own. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              ids: ["V1StGXR8_Z5jdHi6B-myT", "Fq2xWnA0kLpR7sVtYu3zc"]
+      responses:
+        "200":
+          description: How many posts were deleted.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted:
+                        type: integer
+              example:
+                data: { deleted: 2 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
@@ -4823,6 +5130,13 @@ components:
           nullable: true
         metrics:
           $ref: "#/components/schemas/PostMetrics"
+        metrics_pending:
+          type: boolean
+          description: >-
+            Present (and true) only on a reply that was sent from the SuperX
+            app in the last few hours and whose engagement X has not reported
+            yet. Its `metrics` are all zero and are not a measurement. Absent
+            on every other post. See GET /v1/replies.
 
     Analytics:
       type: object
@@ -5612,6 +5926,16 @@ components:
                   type: boolean
         super_followers_only:
           type: boolean
+        x_post_id:
+          type: string
+          description: >-
+            The X post id. Present whenever the post has an X id, which in
+            practice means a post that went out; absent on drafts and on
+            queued posts that have not been published yet.
+        url:
+          type: string
+          description: >-
+            Permalink to the post on X. Present exactly when `x_post_id` is.
 
     PlugTemplate:
       type: object

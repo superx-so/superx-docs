@@ -31,6 +31,15 @@ On success the response is `201` with the created post. If the request times out
 - Keys are retained for 24 hours; after that the same key behaves as new.
 - Requests without an `Idempotency-Key` header get no idempotency protection.
 
+## Publishing now
+
+`scheduled_for: "now"` publishes to X immediately, which cannot be undone, so the header is **required** there: without it the request is rejected with `400 invalid_parameter`. Two rules are specific to publishing:
+
+- A retry that arrives while the first attempt is still publishing returns `409 idempotency_in_flight` with a `Retry-After` header. Wait that long, then retry the **same** key.
+- After that window, a retry does not post again: the API looks up the reserved post id, and if the first attempt did publish, it replays that result (`201`, with `Idempotency-Replayed: true`).
+
+The 24-hour retention has one consequence worth knowing when publishing: a retry sent more than 24 hours after the original request no longer finds the key and is treated as brand new content, so it publishes again. Retry within the window, or check `GET /v1/scheduled-posts?status=sent` first.
+
 ## Scope
 
-Idempotency keys are scoped to the API key that sent them; two of your API keys can use the same string without colliding. Only `POST /v1/scheduled-posts` uses idempotency keys. `DELETE` is naturally idempotent: deleting an already-deleted post returns `404 not_found`.
+Idempotency keys are scoped to the API key that sent them; two of your API keys can use the same string without colliding. Only `POST /v1/scheduled-posts` uses idempotency keys (optional when scheduling, required with `scheduled_for: "now"`). The bulk queue endpoints do not take one and do not need one: re-running the same call converges. `DELETE` is naturally idempotent: deleting an already-deleted post returns `404 not_found`.

@@ -55,12 +55,15 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 403 | `editor_restricted` | Context write on an account shared with you with `editor` permission; only the owner can change those settings (queue settings stay editable) |
 | 403 | `onboarding_required` | Finish onboarding in the SuperX app before scheduling posts |
 | 403 | `post_quota_exceeded` | Post quota for the billing period is used up |
+| 403 | `reauth_required` | The connected X account must be re-authorized in the SuperX app before it can publish. Returned by `scheduled_for: "now"` and article publishing |
 | 403 | (legacy string) | Subscription lapsed; see above |
 | 404 | `account_not_found` | `account_id` is not one of your accounts |
 | 404 | `not_found` | No such resource for this account (for example a scheduled post id) |
 | 404 | `contact_not_found` | The id is not one of the account's contacts. Returned by `GET /v1/contacts/{id}` and `POST /v1/contacts/{id}/notes`; contacts are your engagers, contact-list members and signal leads |
 | 404 | `note_not_found` | No note with that id belongs to the contact in the path |
 | 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
+| 409 | `idempotency_in_flight` | An earlier request with this `Idempotency-Key` is still publishing. Wait for the `Retry-After` delay and retry the SAME key; it will never publish twice |
+| 409 | `post_already_published` | The post has already gone out on X, so it cannot be published again |
 | 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |

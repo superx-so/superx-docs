@@ -5,6 +5,27 @@ description: "API changes, newest first."
 
 ## 2026-09-07
 
+Publish immediately, edit the queue in bulk, and see app-sent replies right away:
+
+**API**
+
+- `POST /v1/scheduled-posts` accepts `scheduled_for: "now"` and publishes to X immediately. Because that cannot be undone, an `Idempotency-Key` is REQUIRED (400 `invalid_parameter` without one), and `title` and `scratchpad` are rejected. A retry that arrives while the first attempt is still publishing returns 409 `idempotency_in_flight` with a `Retry-After`; after that window a retry with the same key replays the original result instead of posting again. The 201 carries `status: "sent"` with `posted_at`, `x_post_id` and `url`, and `scheduled_for: null`. Advanced settings and Auto DM inherit your Default Post Settings exactly as they do for a scheduled post, and Bluesky is never cross-posted
+- `POST /v1/scheduled-posts/bulk/retime` moves up to 500 queued posts in ONE transaction (all or none), `POST /v1/scheduled-posts/bulk/auto-retweet` turns Auto Retweet on for up to 100 queued posts that do not already have one, and `POST /v1/scheduled-posts/bulk/delete` deletes up to 100 queued posts and refunds their post quota. All three touch QUEUED posts only: drafts, sent posts and error rows are counted as skipped, so the returned counts can be lower than the number of ids sent. Each costs one write no matter how many posts it touches, and none takes an `Idempotency-Key` because re-running converges
+- `GET /v1/replies` page 1 now also lists replies sent from the SuperX app's Engage tab in the last 4 hours, which previously took hours to appear here. Those items carry `metrics_pending: true` with all-zero metrics until X reports them, so page 1 can return slightly more than `limit` items; `has_more` still describes the stored replies only, and later pages and `since`/`until` queries are unchanged
+- `ScheduledPost` gained `x_post_id` and `url`, present only on posts that actually went out (status `sent`)
+- New error codes: 403 `reauth_required`, 409 `idempotency_in_flight`, 409 `post_already_published`
+
+**MCP**
+
+- Four new tools (fifty-nine tools total): `publish_post`, `bulk_retime_scheduled_posts`, `bulk_enable_auto_retweet`, `bulk_delete_scheduled_posts`. `publish_post` takes a required `idempotency_key` you choose and reuse verbatim on retries; the bulk tools answer with counts and touch queued posts only
+- `get_my_replies` merges the same 4 hours of app-sent replies on page 1 of the recent sort, flagged with `metrics_pending`
+- Existing MCP sessions need a reconnect to see the new tools
+
+**CLI**
+
+- `superx posts:publish` publishes now (`--idempotency-key` required; same content, media and advanced-settings flags as `scheduled:create` minus `--at`/`--title`/`--scratchpad`)
+- `superx scheduled:bulk-retime --moves-json`, `superx scheduled:bulk-auto-retweet --ids --auto-retweet <h>` and `superx scheduled:bulk-delete --ids`
+
 Contact detail is limited to your own contacts:
 
 **API**
