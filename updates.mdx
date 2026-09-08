@@ -3,6 +3,29 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-09
+
+The audience collections Ask SuperX builds in the app become readable, exportable, and addable to a contact list:
+
+**API**
+
+- `GET /v1/datasets` lists the datasets Ask SuperX built for you: the repliers, quoters or reposters of a post, the members of an X list, your own posts or replies, or a research brief. Datasets belong to you rather than to one X account, so there is no `account_id` here; the account a collection ran as comes back as `x_account_id`. They are kept for 30 days, and expired ones are never listed. `has_people: false` marks an own-content dataset (your posts or replies)
+- `GET /v1/datasets/{id}` returns one dataset's status, counts and coverage. Every status answers 200, so this is what you poll while a collection runs: `collecting` carries live `progress`, `failed` carries a `failure_note`, and `ready` carries the coverage sentence and the filters that were applied
+- `GET /v1/datasets/{id}/rows` pages the rows exactly as they were collected: the keys in `columns`, plus `user_id` (the X account id as a string) and `avatar` on people datasets. Values are not shortened. Each call parses the whole dataset, so page at a large `limit` rather than looping at a small one
+- `GET /v1/datasets/{id}/export?format=csv` returns the dataset as a CSV file rather than the usual `data` envelope, with a `Content-Disposition` filename matching the app download and only the declared `columns` in it. CSV is the only format on the API; XLSX downloads stay in the SuperX app
+- `POST /v1/datasets/{id}/contacts` copies the people in a ready dataset into a contact list you created. It costs one write and no enrichment, because the profiles come from the dataset itself, which is why people SuperX has never stored still land in the list. People are deduped by X account id, rows without one are counted in `skipped_without_id`, and re-running is safe: people already in the list come back in `duplicates`
+- New error codes: 400 `dataset_has_no_people`, 404 `dataset_not_found`, 409 `dataset_not_ready` (the 409 carries the current `dataset_status`, so a poller can tell "wait" from "wrong id")
+- Datasets are created in the SuperX app (Ask) for now. Collecting, refining and researching through the API will come separately
+
+**MCP**
+
+- Four new tools (seventy-one total): `list_datasets`, `get_dataset`, `get_dataset_rows`, `add_dataset_to_contact_list`. The three read tools take no `account` parameter, because a dataset belongs to the key owner rather than to one X account. There is no export tool: the CSV download is REST only
+- Existing MCP sessions need a reconnect to see the new tools
+
+**CLI**
+
+- `datasets:list`, `datasets:get <id>`, `datasets:rows <id>`, `datasets:export <id>` (`--out <file>`, or `--out -` to stream the CSV to stdout) and `datasets:add-to-list <id> --list-id <list-id>`
+
 ## 2026-09-07
 
 Engage feeds, signal agents and article cover styles become writable, posts can be published immediately, the queue can be edited in bulk, and contact detail is limited to your own contacts:

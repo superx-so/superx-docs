@@ -48,6 +48,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 400 | `invalid_collection` | Unknown or unusable `collection` id on `POST /v1/posts/draft`; the message lists the ids that work |
 | 400 | `unknown_creator` | SuperX has no posts for that `creator` handle, so it cannot learn the style |
 | 400 | `creator_style_unavailable` | A style guide for that creator could not be built (not enough public posts). Terminal: retrying will not help |
+| 400 | `dataset_has_no_people` | The dataset holds no people to add to a contact list: own-content datasets (`has_people: false`) hold posts, and rows without an X account id are skipped |
 | 401 | `unauthorized` | Missing or malformed `Authorization` header |
 | 401 | `invalid_api_key` | Unknown or revoked key |
 | 403 | `insufficient_scope` | Read-only key used on a non-GET endpoint |
@@ -70,12 +71,14 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 404 | `signal_not_found` | The signal id does not belong to the agent in the path |
 | 404 | `lead_not_found` | No lead with that id belongs to this account. Lead ids come from `GET /v1/signals/leads` and are not X user ids |
 | 404 | `cover_style_not_found` | The `style_id` is not one of your saved cover styles; list them at `GET /v1/cover-styles` |
+| 404 | `dataset_not_found` | No dataset with that id belongs to this key, or it expired (datasets are kept for 30 days). List them at `GET /v1/datasets` |
 | 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
 | 409 | `idempotency_in_flight` | An earlier request with this `Idempotency-Key` is still publishing. Wait for the `Retry-After` delay and retry the SAME key; it will never publish twice |
 | 409 | `post_already_published` | The post has already gone out on X, so it cannot be published again |
 | 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
 | 409 | `duplicate_signal` | The agent already watches that target. An agent may hold each target once |
 | 409 | `feed_limit_reached` | The account already holds the maximum number of saved Engage feeds (8). Delete one first |
+| 409 | `dataset_not_ready` | The dataset id is valid but the dataset is not `ready`. The error carries the current `dataset_status`: `collecting` finishes on its own (poll `GET /v1/datasets/{id}`), `failed` has to be rebuilt in the SuperX app |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
 | 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting). Carries `credits_required`, `credits_remaining` and `reset_at`, plus a `Retry-After` header. See [Credits](/rate-limits#credits) |

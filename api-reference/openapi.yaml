@@ -28,6 +28,15 @@ tags:
   - name: Audience
   - name: Contact Lists
   - name: Signals
+  - name: Datasets
+    description: |
+      The audience collections Ask SuperX builds in the app: the repliers,
+      quoters or reposters of a post, the members of an X list, your own
+      posts or replies, or a research brief.
+
+      Read-only here, plus one write that copies the people in a dataset
+      into a contact list you created. New datasets are created in the
+      SuperX app for now. Datasets are kept for 30 days.
   - name: Engage
     description: |
       The account's saved Engage feeds and the candidate posts in them, for
@@ -5285,6 +5294,335 @@ paths:
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
+  /v1/datasets:
+    get:
+      tags: [Datasets]
+      operationId: listDatasets
+      summary: List datasets
+      description: |
+        The audience collections Ask SuperX built for the key owner in the
+        app: the repliers, quoters or reposters of a post, the members of an
+        X list, the owner's own posts or replies, or a research brief.
+        Newest first, expired datasets excluded.
+
+        Datasets belong to the person, not to one X account, so there is no
+        `account_id` parameter here. The account a collection ran as is
+        reported as `x_account_id`.
+
+        Datasets are kept for 30 days and are created in the SuperX app for
+        now; this API reads them and can copy the people in one into a
+        contact list.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: The owner's live datasets, newest first.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Dataset" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: "VKcPAVU1FSkx4kzPuehGK"
+                    title: "Repliers to my launch post"
+                    source: repliers
+                    status: ready
+                    target_ref: "1234567890123456789"
+                    x_account_id: "1178367350552305665"
+                    ask_chat_id: "aB3dEf9"
+                    columns: ["handle", "name", "bio", "website", "followers", "following", "location", "can_dm", "verified"]
+                    row_count: 214
+                    scanned_count: 214
+                    total_estimate: 214
+                    coverage_complete: true
+                    has_people: true
+                    created_at: "2026-09-05T10:12:00.000Z"
+                    expires_at: "2026-10-05T10:12:00.000Z"
+                pagination:
+                  page: 1
+                  limit: 20
+                  has_more: false
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/datasets/{id}:
+    get:
+      tags: [Datasets]
+      operationId: getDataset
+      summary: Get a dataset
+      description: |
+        One dataset's status, counts and coverage.
+
+        Every status answers 200, so this is the endpoint to poll while a
+        collection runs: `collecting` carries live `progress`, `failed`
+        carries a `failure_note`, and `ready` carries the honest `coverage`
+        sentence and the `filters` the collection applied. The counts on a
+        collecting dataset are not final.
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+      responses:
+        "200":
+          description: The dataset, whatever its status.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/DatasetDetail" }
+              example:
+                data:
+                  id: "VKcPAVU1FSkx4kzPuehGK"
+                  title: "Repliers to my launch post"
+                  source: repliers
+                  status: ready
+                  target_ref: "1234567890123456789"
+                  x_account_id: "1178367350552305665"
+                  ask_chat_id: "aB3dEf9"
+                  columns: ["handle", "name", "bio", "website", "followers", "following", "location", "can_dm", "verified"]
+                  row_count: 214
+                  scanned_count: 214
+                  total_estimate: 214
+                  coverage_complete: true
+                  has_people: true
+                  created_at: "2026-09-05T10:12:00.000Z"
+                  expires_at: "2026-10-05T10:12:00.000Z"
+                  coverage: "Scanned all 214 direct replies available (relevance-ranked order)."
+                  filters:
+                    minFollowers: 500
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/DatasetNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/datasets/{id}/rows:
+    get:
+      tags: [Datasets]
+      operationId: getDatasetRows
+      summary: Get dataset rows
+      description: |
+        A page of a ready dataset's rows.
+
+        Rows come back exactly as the collection stored them: the keys listed
+        in the dataset's `columns`, plus `user_id` (the X account id as a
+        string) and `avatar` on people datasets. Text fields are not
+        shortened.
+
+        Each call parses the whole dataset (up to about 5MB), so page through
+        with `limit` and `page` rather than looping at `limit=1`. A dataset
+        that is not `ready` returns 409 `dataset_not_ready`.
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - name: limit
+          in: query
+          required: false
+          description: Rows per page, 1 to 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of rows, with the dataset's row count as `total`.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/DatasetRow" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - handle: "@levelsio"
+                    name: "levels.io"
+                    bio: "Indie maker"
+                    website: "https://levels.io"
+                    followers: 600000
+                    following: 1200
+                    location: "Everywhere"
+                    can_dm: true
+                    verified: true
+                    user_id: "944883311"
+                    avatar: "https://pbs.twimg.com/profile_images/example.jpg"
+                pagination:
+                  page: 1
+                  limit: 50
+                  has_more: true
+                  total: 214
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/DatasetNotFound" }
+        "409": { $ref: "#/components/responses/DatasetNotReady" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/datasets/{id}/export:
+    get:
+      tags: [Datasets]
+      operationId: exportDataset
+      summary: Export a dataset as CSV
+      description: |
+        The whole dataset as a CSV file.
+
+        This response is NOT wrapped in the `data` envelope: the body is the
+        raw CSV, with a `Content-Disposition` filename matching the app
+        download's naming pattern
+        (`superx-dataset-<title>-<YYYY-MM-DD>.csv`). Treat the name as a
+        convenience, not a contract: unusual titles can slug differently from
+        the app's own download. Only the columns listed
+        in `columns` are exported (the `user_id` and `avatar` extras stay
+        out, exactly like the app download).
+
+        CSV is the only format here; XLSX downloads stay in the SuperX app.
+        A dataset that is not `ready` returns 409 `dataset_not_ready`.
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+        - name: format
+          in: query
+          required: false
+          description: Only `csv` is supported. Any other value returns 400.
+          schema:
+            type: string
+            enum: [csv]
+            default: csv
+      responses:
+        "200":
+          description: The dataset as CSV. Not wrapped in the `data` envelope.
+          headers:
+            Content-Disposition:
+              description: 'attachment; filename="superx-dataset-<title>-<date>.csv"'
+              schema:
+                type: string
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                handle,name,followers
+                @levelsio,levels.io,600000
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/DatasetNotFound" }
+        "409": { $ref: "#/components/responses/DatasetNotReady" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /v1/datasets/{id}/contacts:
+    post:
+      tags: [Datasets]
+      operationId: addDatasetToContacts
+      summary: Add a dataset's people to a contact list
+      description: |
+        Copy the people in a ready dataset into a contact list you created.
+
+        Costs ONE WRITE and no enrichment: the profiles come from the dataset
+        the collection already hydrated, which is why people SuperX has never
+        stored still land in the list.
+
+        People are deduped by X account id before the write, and rows without
+        an X account id or a usable handle are counted in
+        `skipped_without_id` rather than added as blank members, so
+        `added + duplicates` can be lower than the dataset's `row_count`.
+        Re-running is safe: people already in the list come back in
+        `duplicates`.
+
+        Own-content datasets (your posts, your replies) hold no people and
+        return 400 `dataset_has_no_people`; so does a dataset whose rows all
+        lack an X account id. A dataset that is not `ready` returns 409
+        `dataset_not_ready`, and a system list returns 400
+        `system_list_read_only`.
+
+        Works for your main account or any account linked to it
+        (`account_id`); accounts shared with you are read-only. Needs the
+        write scope.
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [list_id]
+              properties:
+                list_id:
+                  type: string
+                  description: A contact list you created, from `GET /v1/contact-lists`.
+                account_id:
+                  type: string
+            example:
+              list_id: "cl_9f2b71"
+      responses:
+        "200":
+          description: The add finished. Read the counters for what happened.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/DatasetContactsResult" }
+              example:
+                data:
+                  added: 198
+                  duplicates: 12
+                  failed: 0
+                  skipped_without_id: 4
+                  total_in_list_after: 242
+        "400": { $ref: "#/components/responses/DatasetHasNoPeople" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404":
+          description: |
+            Either end of the copy is missing: `dataset_not_found` (no dataset
+            with that id belongs to this key, or it has expired) or
+            `list_not_found` (no contact list with that id belongs to this
+            account). Read `error.code` to tell them apart.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: list_not_found
+                  message: "No contact list with that id belongs to this account."
+        "409": { $ref: "#/components/responses/DatasetNotReady" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
   /v1/docs:
     get:
       tags: [Meta]
@@ -5396,6 +5734,14 @@ components:
         type: integer
         minimum: 1
         default: 1
+    DatasetId:
+      name: id
+      in: path
+      required: true
+      description: The dataset id from `GET /v1/datasets`.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{1,64}$"
 
   schemas:
     ErrorEnvelope:
@@ -6292,6 +6638,139 @@ components:
           format: date-time
           nullable: true
 
+    Dataset:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Pass this to the other dataset endpoints.
+        title:
+          type: string
+        source:
+          type: string
+          enum: [repliers, quoters, reposters, list_members, my_replies, my_posts, research]
+          description: What the collection walked. `my_posts` / `my_replies` hold posts, everything else holds people.
+        status:
+          type: string
+          enum: [ready, collecting, failed]
+        target_ref:
+          type: string
+          description: What the collection was pointed at - a post id, an X list id, or free text for a research brief.
+        x_account_id:
+          type: string
+          description: The X account the collection ran as. Not a filter - datasets belong to the key owner, not to one account.
+        ask_chat_id:
+          type: string
+          nullable: true
+          description: The Ask SuperX chat the dataset was built in, when known.
+        columns:
+          type: array
+          items:
+            type: string
+          description: The row keys this dataset carries, in export order.
+        row_count:
+          type: integer
+        scanned_count:
+          type: integer
+          description: What the walk went through (people datasets), or the rows kept (own-content datasets).
+        total_estimate:
+          type: integer
+          nullable: true
+        coverage_complete:
+          type: boolean
+          description: False when the collection hit its row cap before the end.
+        has_people:
+          type: boolean
+          description: False for own-content datasets - there is nobody in them to add to a contact list.
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: Datasets are kept for 30 days.
+
+    DatasetProgress:
+      type: object
+      description: Live progress of a collection that is still running.
+      properties:
+        page:
+          type: integer
+        scanned:
+          type: integer
+        matched:
+          type: integer
+        total_estimate:
+          type: integer
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+
+    DatasetDetail:
+      allOf:
+        - $ref: "#/components/schemas/Dataset"
+        - type: object
+          properties:
+            coverage:
+              type: string
+              description: An honest one-line coverage statement. Ready datasets only.
+            filters:
+              type: object
+              additionalProperties: true
+              description: The filters the collection applied. Ready datasets only.
+            progress:
+              $ref: "#/components/schemas/DatasetProgress"
+            failure_note:
+              type: string
+              description: Why the collection stopped. Failed datasets only.
+
+    DatasetRow:
+      type: object
+      additionalProperties: true
+      description: |
+        One collected row, verbatim. Its keys are the dataset's `columns`
+        plus, on people datasets, `user_id` (the X account id as a string)
+        and `avatar`. Values are not shortened.
+
+    DatasetContactsResult:
+      type: object
+      properties:
+        added:
+          type: integer
+        duplicates:
+          type: integer
+          description: People already in the list. Never an error.
+        failed:
+          type: integer
+        skipped_without_id:
+          type: integer
+          description: |
+            Rows with no X account id or no usable handle. Nothing was sent
+            for them. Repeat rows for a person already collected are deduped
+            silently and are not counted here.
+        total_in_list_after:
+          type: integer
+
+    DatasetNotReadyError:
+      allOf:
+        - $ref: "#/components/schemas/ErrorEnvelope"
+        - type: object
+          properties:
+            error:
+              type: object
+              properties:
+                dataset_status:
+                  type: string
+                  enum: [collecting, failed]
+                  description: |
+                    The dataset's current status. `collecting` finishes on its
+                    own, `failed` has to be rebuilt in the SuperX app. Named
+                    `dataset_status` so it never reads as the HTTP status.
+      description: |
+        The `409 dataset_not_ready` body: the standard envelope plus the
+        dataset's current status, so a poller can tell "wait" from "wrong id".
+
     EngageFeed:
       type: object
       properties:
@@ -7138,3 +7617,38 @@ components:
             error:
               code: accounts_unavailable
               message: "Account information is temporarily unavailable. Try again shortly."
+
+    DatasetNotFound:
+      description: No dataset with that id belongs to this key, or it has expired.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: dataset_not_found
+              message: "No dataset with that id belongs to this key, or it has expired (datasets are kept for 30 days)"
+
+    DatasetNotReady:
+      description: |
+        The dataset id is valid but the dataset is not `ready`. The error
+        carries the current `dataset_status`: `collecting` finishes on its own
+        (poll `GET /v1/datasets/{id}`), `failed` has to be rebuilt in the
+        SuperX app.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/DatasetNotReadyError" }
+          example:
+            error:
+              code: dataset_not_ready
+              message: "This dataset is not ready yet. Check GET /v1/datasets/{id}: a collecting dataset finishes on its own, and a failed one has to be rebuilt in the SuperX app."
+              dataset_status: collecting
+
+    DatasetHasNoPeople:
+      description: The dataset holds no people to add (`dataset_has_no_people`), a system list was targeted (`system_list_read_only`), or the body was malformed (`invalid_parameter`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: dataset_has_no_people
+              message: "This dataset has no people to add: own-content datasets hold your posts, and rows without an X account id are skipped."

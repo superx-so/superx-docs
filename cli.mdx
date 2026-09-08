@@ -111,9 +111,16 @@ The credentials file takes priority over the environment variable when both exis
 | `superx articles:publish <id>` | Publish an article to X now (irreversible; needs X Premium) |
 | `superx articles:cover-styles` | List the article cover styles saved in the SuperX app (ids for `--style-id`) |
 | `superx articles:cover <id>` | Generate an AI cover from the title (60-100s, spends AI credits; `--style-id` a saved style or `--style` a one-off description, never both; `--no-attach` to skip attaching) |
+| `superx datasets:list` | List the audience collections Ask SuperX built in the app (kept for 30 days) |
+| `superx datasets:get <id>` | Read one dataset: status (`collecting`/`ready`/`failed`), counts, coverage sentence |
+| `superx datasets:rows <id>` | Read a page of a ready dataset's rows, exactly as they were collected |
+| `superx datasets:export <id>` | Download a ready dataset as CSV (`--out <file>`, or `--out -` to stream to stdout) |
+| `superx datasets:add-to-list <id>` | Copy the people in a ready dataset into a contact list you created (`--list-id`) |
 | `superx docs` | Print the SuperX API quickstart (markdown, no auth needed) |
 
 Flags mirror the API's query parameters: `--account`, `--limit`, `--page`, `--since`/`--until`, `--sort`, `--type`, `--status`, `--from`/`--to`. Run any command with `--help` for its full flag list and examples.
+
+Datasets are created in the SuperX app (Ask) for now; the CLI reads them. `datasets:rows`, `datasets:export` and `datasets:add-to-list` need a dataset whose status is `ready`, so poll `datasets:get <id>` first; anything else returns `409 dataset_not_ready`. Export is CSV only (XLSX downloads stay in the app), and `datasets:export` writes a filename matching the app download's naming pattern (`superx-dataset-<title>-<date>.csv`) unless `--out` says otherwise.
 
 Note that drafts have no scheduled time, so `--from`/`--to` filters on `scheduled:list` exclude drafts; use `--status draft` to list them.
 
