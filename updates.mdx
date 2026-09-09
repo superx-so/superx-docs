@@ -3,6 +3,28 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-10: Audience lists, live mentions and audience collection
+
+The people around an account are now readable end to end, and collections can be started through the API:
+
+**API**
+
+- `GET /v1/audience/{kind}` reads a page of the account's `followers`, `following`, `repliers` or `reposters` from SuperX's synced snapshot. These four are the system lists in the app's Contacts tab, which `GET /v1/contact-lists/{id}/members` will not serve; that endpoint's `system_list_not_supported` error now points here
+- Audience paging is by CURSOR rather than page number: `pagination.next_cursor` goes back as `cursor`, so pages stay stable while new followers arrive mid-walk. There is no `total`; `meta.synced_count` is the size of the whole list, and `meta` also carries the sync `status`, the plan's `backfill_cap` and whether the account is deeper than it. `repliers` and `reposters` are a rolling 90-day window (`meta.window_days`)
+- `GET /v1/contact-lists` now reports a real `member_count` on the four system rows instead of `0`
+- `GET /v1/engage/mentions` reads the posts @-mentioning the account live, newest first (`sort=top` ranks by engagement), each with the post it replies to and one further level of ancestry. `mention_type` separates a direct reply from any other @-mention, and `include_replied=true` keeps mentions already replied to on X, flagged `replied`. It costs a flat 3 units of the feed bucket and pages by cursor. The app's Mentions tab also hides posts you skipped or blocked there; that is an app preference and is not applied here
+- `POST /v1/datasets` collects a post's repliers, quote posters or reposters, a public X list's members, or the account's own posts or replies, into a dataset you can read, export or copy into a contact list. Small collections answer `200` with a `ready` dataset; big ones answer `202` with a `collecting` one, so poll `GET /v1/datasets/{id}` until `status` is `ready`. Nothing matched means `200` with `data: null` and a `note` rather than an empty dataset
+- Collections cost one of 10 per account per day, shared with the collections Ask SuperX runs in the app (`429 collection_quota_exceeded`), plus enrichment for the pages they walk, charged before the walk so `X-RateLimit-Remaining` covers work that outlives a `202`. `my_posts` and `my_replies` read your own synced posts and cost no enrichment. One background collection runs per account at a time (`409 collection_in_progress`), and `POST /v1/datasets` accepts an `Idempotency-Key`
+- New error codes: 400 `invalid_source`, 409 `profile_not_synced`, 409 `collection_in_progress`, 429 `collection_quota_exceeded`
+
+**MCP**
+
+- Three new tools: `get_audience`, `get_mentions` and `collect_audience` (write scope). `get_contact_list_members` now points at `get_audience` for the system lists
+
+**CLI**
+
+- `superx audience:list <kind>`, `superx engage:mentions` and `superx datasets:collect` (with `--wait` to poll a background collection until it is ready)
+
 ## 2026-09-09: Live X lookups and media search
 
 Any public post, profile or timeline can now be read live, and the app's cross-platform media index is searchable:

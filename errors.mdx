@@ -43,6 +43,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 400 | `media_too_large` | Over the size cap: 5MB for images, 15MB for GIFs |
 | 400 | `fetch_failed` | The MCP `upload_media_from_url` download failed, timed out, or followed too many redirects |
 | 400 | `url_not_allowed` | The MCP `upload_media_from_url` URL is not plain public https (private or reserved addresses, embedded credentials, and non-https schemes are rejected) |
+| 400 | `invalid_source` | `POST /v1/datasets` was sent a `source` it does not accept. Research briefs are built in the SuperX app only |
 | 400 | `range_too_large` | Analytics range beyond the 366-day maximum |
 | 400 | `mirror_rejected` | The `mirror` post on `POST /v1/posts/draft` cannot be used as a shape (too thin, carries a link, or is engagement bait); the message names the reason |
 | 400 | `invalid_collection` | Unknown or unusable `collection` id on `POST /v1/posts/draft`; the message lists the ids that work |
@@ -79,11 +80,14 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 409 | `creator_style_pending` | The creator's style guide is being prepared; retry the same request in about a minute |
 | 409 | `duplicate_signal` | The agent already watches that target. An agent may hold each target once |
 | 409 | `feed_limit_reached` | The account already holds the maximum number of saved Engage feeds (8). Delete one first |
+| 409 | `profile_not_synced` | The account's X profile has not synced into SuperX yet, so `GET /v1/engage/mentions` has no handle to search for. Open the account in the SuperX app once, then retry |
+| 409 | `collection_in_progress` | Another background audience collection is still running for this account. Poll it with `GET /v1/datasets/{id}` and start the next one when it finishes |
 | 409 | `dataset_not_ready` | The dataset id is valid but the dataset is not `ready`. The error carries the current `dataset_status`: `collecting` finishes on its own (poll `GET /v1/datasets/{id}`), `failed` has to be rebuilt in the SuperX app |
 | 429 | `rate_limited` | Rate limit exceeded; honor `Retry-After` |
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
 | 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting). Carries `credits_required`, `credits_remaining` and `reset_at`, plus a `Retry-After` header. See [Credits](/rate-limits#credits) |
 | 429 | `ai_action_limited` | The per-day count limit for this AI action on your plan is used up. Carries `retry_after` and a `Retry-After` header; the counter resets at midnight UTC |
+| 429 | `collection_quota_exceeded` | Today's audience collections are used up (10 per account per day, shared with the collections Ask SuperX runs in the app). Carries `retry_after`, `limit` and `reset_at`, plus a `Retry-After` header; the counter resets at midnight UTC |
 | 429 | `lookup_quota_exceeded` | The daily live X lookup allowance (300 per account, shared with Ask SuperX in the app) is used up, or it could not be verified. Carries `retry_after`, `limit` and `reset_at`, plus a `Retry-After` header; the counter resets at midnight UTC. See [Rate limits](/rate-limits#live-x-lookups) |
 | 500 | `internal_error` | Unexpected server error |
 | 502 | `upstream_error` | A dependent SuperX service returned an unexpected response |

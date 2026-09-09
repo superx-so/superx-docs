@@ -53,6 +53,8 @@ The credentials file takes priority over the environment variable when both exis
 | `superx engage:feeds:create` | Save a new Engage feed (`--name` plus exactly one source: repeatable `--keyword`, `--x-list` id or link, or `--list-id`); it does not become the feed the app has open |
 | `superx engage:feeds:update <feed-id>` | Rename a feed or point it somewhere else (`--name`, and one of `--keyword`, `--x-list`, `--list-id`); the feed keeps its id |
 | `superx engage:feeds:delete <feed-id>` | Delete an Engage feed; if it was the open one, the first remaining feed takes over |
+| `superx engage:mentions` | The posts @-mentioning you right now, each with the post it replies to (`--sort top`, `--include-replied`, `--cursor` to page); costs 3 feed fetches |
+| `superx audience:list <kind>` | A page of your `followers`, `following`, `repliers` or `reposters` from SuperX's synced snapshot (`--limit`, `--cursor` to page) |
 | `superx contacts:list` | List the people who engage with you most |
 | `superx contacts:replies <id>` | List a contact's replies to you (their id from `contacts:list`) |
 | `superx contacts:get <id>` | Show one person: profile, follower counts and the lists they are in (`--refresh` refreshes a stale profile from X). Known contacts only: ids come from `contacts:list`, `lists:members` or `signals:leads` |
@@ -116,6 +118,7 @@ The credentials file takes priority over the environment variable when both exis
 | `superx datasets:rows <id>` | Read a page of a ready dataset's rows, exactly as they were collected |
 | `superx datasets:export <id>` | Download a ready dataset as CSV (`--out <file>`, or `--out -` to stream to stdout) |
 | `superx datasets:add-to-list <id>` | Copy the people in a ready dataset into a contact list you created (`--list-id`) |
+| `superx datasets:collect` | Collect a new dataset (`--source` repliers/quoters/reposters/list_members/my_posts/my_replies, `--target`, `--max-rows`, filters, `--wait` to poll until it is ready) |
 | `superx x:post <id\|url>` | Look up one public X post live (`--quotes` also fetches a page of quote posts) |
 | `superx x:replies <id\|url>` | The top replies by likes to a public post, live (`--limit`, up to 20) |
 | `superx x:user <handle>` | Look up one public X profile live |
