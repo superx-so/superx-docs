@@ -33,6 +33,7 @@ Posts take images: presign with `POST /v1/media`, PUT the bytes, then attach the
 - **Timestamps** are UTC ISO-8601 in both directions. Inputs must include an explicit `Z` or a numeric offset (`2026-07-06T12:00:00Z`, `2026-07-06T14:00:00+02:00`). Timestamps without a timezone are rejected with `400 invalid_parameter`.
 - **Lists** return `{ "data": [...], "pagination": { "page", "limit", "has_more", "total"? } }`. `limit` is capped at 100; `total` appears only where it is cheap to compute.
 - **Errors** return `{ "error": { "code", "message" } }` with a stable machine-readable code. See [Errors](/errors) for the codes and one legacy exception.
+- **Query parameters**: each query parameter may appear once; a repeated or bracketed parameter (for example `?q=a&q=b` or `?q[a]=1`) is rejected with `400 invalid_parameter`.
 - **Account selection**: most endpoints accept an `account_id` parameter. When omitted, your main account is used. See [Accounts](/accounts).
 
 ## Quick start
