@@ -12,7 +12,7 @@ Limits depend on your SuperX plan, with separate buckets for reads (`GET`), writ
 | Advanced | 120 | 20,000 | 30 | 1,000 | 10 | 250 | 10 | 120 |
 | Ultra | 400 | 60,000 | 60 | 2,000 | 15 | 500 | 15 | 300 |
 
-Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit, and so does `GET /v1/contacts/{id}?refresh=true`. Anything that resolves an X handle or list live costs one enrichment unit too: creating or updating an Engage feed with `x_list_id` / `x_list_url`, adding a `profile_watch`, `follower_watch` or `list_watch` signal, and creating a signal agent whose `signals` include any of those three (one unit for the whole create, however many such entries it carries). Keyword feeds, contact-list feeds and `keyword_watch` signals cost no enrichment. The enrichment unit pays for the lookup itself, so it is spent even when the request is then rejected: an X-list feed create that fails on the 8-feed cap (409 `feed_limit_reached`) has already resolved the list and does not get the unit back. Bulk adding members (`POST /v1/contact-lists/{id}/members/bulk`) costs one write and no enrichment: it resolves ids SuperX already knows and never calls out to X. The bulk queue endpoints (`POST /v1/scheduled-posts/bulk/retime`, `/bulk/auto-retweet`, `/bulk/delete`) cost one write each no matter how many posts they touch, so changing 100 posts at once is one unit rather than 100. A feed fetch (`GET /v1/engage/feeds/{id}/posts`) counts against the feed bucket, and a list feed that rotates its members counts as 3 fetches.
+Limits aggregate per account: all your API keys, the CLI and MCP draw from the same budget. MCP tool calls are read-classed; MCP write tools (scheduling, articles, signal agents, media) also count against the write limit. Adding a contact-list member counts against both the write limit and the tighter enrichment limit, and so does `GET /v1/contacts/{id}?refresh=true`. Anything that resolves an X handle or list live costs one enrichment unit too: creating or updating an Engage feed with `x_list_id` / `x_list_url`, adding a `profile_watch`, `follower_watch` or `list_watch` signal, and creating a signal agent whose `signals` include any of those three (one unit for the whole create, however many such entries it carries). Keyword feeds, contact-list feeds and `keyword_watch` signals cost no enrichment. The enrichment unit pays for the lookup itself, so it is spent even when the request is then rejected: an X-list feed create that fails on the 8-feed cap (409 `feed_limit_reached`) has already resolved the list and does not get the unit back. The live X lookups spend enrichment too, and more than one unit each where they make more than one upstream call: `GET /v1/x/posts/{id}` costs 1 (2 with `include_quotes`), `GET /v1/x/posts/{id}/replies` costs a flat 3 (it walks up to 3 pages), `GET /v1/x/users/{handle}` costs 1, and `GET /v1/x/users/{handle}/posts` costs 1 for a handle SuperX already knows and 2 for one it does not. A multi-unit call is all-or-nothing: it is rejected without charging anything rather than half-charged. Bulk adding members (`POST /v1/contact-lists/{id}/members/bulk`) costs one write and no enrichment: it resolves ids SuperX already knows and never calls out to X. The bulk queue endpoints (`POST /v1/scheduled-posts/bulk/retime`, `/bulk/auto-retweet`, `/bulk/delete`) cost one write each no matter how many posts they touch, so changing 100 posts at once is one unit rather than 100. A feed fetch (`GET /v1/engage/feeds/{id}/posts`) counts against the feed bucket, and a list feed that rotates its members counts as 3 fetches.
 
 The dataset reads (`GET /v1/datasets/{id}/rows` and `GET /v1/datasets/{id}/export`) each parse one whole dataset, up to about 5MB, per call, so page at `limit=100` rather than looping at a small limit: ten calls at 100 rows are far cheaper on both sides than a hundred calls at 10. `POST /v1/datasets/{id}/contacts` costs one write and no enrichment however many people it copies, because the profiles come from the dataset itself.
 
@@ -109,6 +109,30 @@ Some AI actions also carry a per-day count cap per plan, so an unusually cheap r
 | `research_profiles` | 10 | 50 | 100 | 250 |
 
 Credit and action limits fail closed: when SuperX cannot verify your balance or your day count, the call is refused rather than run for free.
+
+## Live X lookups
+
+The `/v1/x/*` endpoints read X live rather than SuperX's stored data, so they carry a second limit on top of the enrichment bucket above: an allowance of **300 live lookups per account per UTC day**, SHARED with Ask SuperX inside the SuperX app. Heavy API use eats into what Ask can look up that day, and the other way around. Over the allowance returns `429 lookup_quota_exceeded`:
+
+```json
+{
+  "error": {
+    "code": "lookup_quota_exceeded",
+    "message": "Today's live X lookup allowance (300 lookups) is used up. It is shared with Ask SuperX in the app and resets at midnight UTC.",
+    "retry_after": 20400,
+    "limit": 300,
+    "reset_at": 1789430400
+  }
+}
+```
+
+`reset_at` is a unix timestamp in seconds at the next midnight UTC. Like the credit limits, this one fails closed: when SuperX cannot verify your day count, the lookup is refused rather than run unmetered, and it answers with the same code.
+
+Results are cached server-side for about 15 minutes. A repeat lookup inside that window still costs its enrichment units (the enrichment bucket counts the call), but it does NOT touch the 300/day allowance, because nothing was fetched from X.
+
+`GET /v1/inspiration/media` is not a live X read and costs no enrichment. It has its own two caps per account instead: a burst of 20 refilling one every 3 seconds, and 500 FRESH searches per UTC day. Repeats of a recent identical search come from a short cache and do not count against the daily 500. Both return `429 rate_limited` with `Retry-After`. There is no pagination on that endpoint: one query returns at most 120 items, so ask for `limit=120` and filter your side rather than calling it repeatedly.
+
+`lookup_quota_exceeded` covers three cases and the body says which: your own allowance is used up (`limit` is present), the SuperX-wide allowance is used up (no `limit`, because it is not your account's budget), or the counter could not be verified and the call was refused rather than run unmetered (no `limit`, and a short `retry_after` rather than one pointing at midnight). Read `error.retry_after` rather than assuming midnight.
 
 ## Failed authentication attempts
 

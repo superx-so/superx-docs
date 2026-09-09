@@ -66,7 +66,8 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 404 | `list_not_found` | The contact list id is not one of your lists. Also returned when a signal agent's `destination_list_id` is not usable |
 | 404 | `feed_not_found` | No Engage feed with that id belongs to this account |
 | 404 | `x_list_not_found` | The X list is private, deleted, or never existed. Only public X lists can be used as an Engage feed source or a `list_watch` signal |
-| 404 | `user_not_found` | No X account matches that handle (contact-list adds, `profile_watch` / `follower_watch` signals) |
+| 404 | `user_not_found` | No X account matches that handle (contact-list adds, `profile_watch` / `follower_watch` signals, `GET /v1/x/users/{handle}` and its `/posts`) |
+| 404 | `post_not_found` | No public post with that id on the live lookups (`GET /v1/x/posts/{id}` and its `/replies`): deleted, protected, or the wrong id. The upstream read reports a missing post and a failed read identically, so a transient failure can surface here too; retry once before concluding the post is gone |
 | 404 | `agent_not_found` | The agent id is not one of your signal agents |
 | 404 | `signal_not_found` | The signal id does not belong to the agent in the path |
 | 404 | `lead_not_found` | No lead with that id belongs to this account. Lead ids come from `GET /v1/signals/leads` and are not X user ids |
@@ -83,6 +84,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
 | 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting). Carries `credits_required`, `credits_remaining` and `reset_at`, plus a `Retry-After` header. See [Credits](/rate-limits#credits) |
 | 429 | `ai_action_limited` | The per-day count limit for this AI action on your plan is used up. Carries `retry_after` and a `Retry-After` header; the counter resets at midnight UTC |
+| 429 | `lookup_quota_exceeded` | The daily live X lookup allowance (300 per account, shared with Ask SuperX in the app) is used up, or it could not be verified. Carries `retry_after`, `limit` and `reset_at`, plus a `Retry-After` header; the counter resets at midnight UTC. See [Rate limits](/rate-limits#live-x-lookups) |
 | 500 | `internal_error` | Unexpected server error |
 | 502 | `upstream_error` | A dependent SuperX service returned an unexpected response |
 | 502 | `generation_failed` | Every draft in a `POST /v1/posts/draft` call failed to generate; all credits for the call were refunded |

@@ -3,7 +3,31 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
-## 2026-09-09
+## 2026-09-09: Live X lookups and media search
+
+Any public post, profile or timeline can now be read live, and the app's cross-platform media index is searchable:
+
+**API**
+
+- `GET /v1/x/posts/{id}` reads one public post as it is right now: full text (never shortened), author, engagement counts, media, link card, and the quoted post one level deep. `include_quotes=true` adds a page of the posts quoting it (up to 20, not exhaustive)
+- `GET /v1/x/posts/{id}/replies` returns the best-liked DIRECT replies to a post. It walks up to 3 relevance-ranked pages (about 60 candidates), ranks them by likes and returns the top `limit` (1-20, default 10). A sample of the strongest replies, not every reply and not chronological; to collect everyone who replied, use the audience collections at `GET /v1/datasets`
+- `GET /v1/x/users/{handle}` reads one public profile live (bio, location, link, follower/following counts, post count, join date, pinned post id). The `@` is optional. Unlike `GET /v1/contacts/{id}`, which is limited to people you already have a relationship with, this works for any public handle
+- `GET /v1/x/users/{handle}/posts` returns one live timeline page (about 20 posts), newest first. Replies are included and carry `in_reply_to_id`, `is_pinned` marks the pinned post, and `exclude_reposts=true` drops reposts (only one page is fetched, so fewer than `limit` can come back after the filter)
+- `GET /v1/inspiration/media` searches the cross-platform media index behind the app's Inspiration > Media tab: short-form video and image posts from X, Instagram, YouTube, Threads, Reddit and LinkedIn, with captions, a summary and engagement counts. Omit `q` to browse the newest instead of searching (`meta.mode` says which ran, and only search results carry a `score`). Media file URLs are not exposed through the API: `source_url` opens the original post on its own platform. There is no personalisation here, unlike in the app
+- All five are OWNER-scoped and take no `account_id`: nothing about a public lookup is per-X-account
+- Costs: the four live lookups spend the tighter enrichment allowance (1 unit each, 3 for replies, 2 for a post with `include_quotes` or a handle SuperX has never seen) and share an allowance of 300 live lookups per account per day with Ask SuperX in the app. Repeat lookups within 15 minutes may be served from a short server-side cache: they still cost enrichment units but do not touch the daily allowance. Media search costs no enrichment and has its own caps (20 burst, 500 fresh searches a day)
+- New error codes: 404 `post_not_found` and 429 `lookup_quota_exceeded` (carrying `retry_after`, `limit` and `reset_at`). `user_not_found` now also covers the two handle lookups. The daily allowance fails closed: when SuperX cannot verify your day count the lookup is refused rather than run unmetered
+
+**MCP**
+
+- Five new tools (seventy-six total): `lookup_x_post`, `get_x_post_replies`, `lookup_x_user`, `get_x_user_posts` and `search_inspiration_media`. None takes an `account` parameter
+- Existing MCP sessions need a reconnect to see the new tools
+
+**CLI**
+
+- `x:post <id|url>` (`--quotes`), `x:replies <id|url>` (`--limit`), `x:user <handle>`, `x:user-posts <handle>` (`--limit`, `--no-reposts`) and `inspiration:media [query]` (`--platforms`, `--time-filter`, `--media-type`, `--content-type`, `--limit`)
+
+## 2026-09-09: Datasets
 
 The audience collections Ask SuperX builds in the app become readable, exportable, and addable to a contact list:
 

@@ -51,6 +51,18 @@ tags:
       reviewed and meaningfully edited before they are sent, and you are
       solely responsible for what you post. Reply activity is logged and
       may be audited.
+  - name: X Lookups
+    description: |
+      Read any public post, its top replies, any public profile, or an
+      account's latest posts LIVE from X, rather than from SuperX's stored
+      data.
+
+      These are owner-scoped, so none of them take an `account_id`: nothing
+      about a public lookup is per-X-account. They cost the tighter
+      live-enrichment allowance and share a daily allowance of 300 live
+      lookups with Ask SuperX inside the app, so use them for what you
+      actually need rather than to sweep. Repeat lookups within 15 minutes
+      may be served from a short-lived server-side cache.
   - name: Media
   - name: Scheduling
   - name: Tags
@@ -791,6 +803,128 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/inspiration/media:
+    get:
+      tags: [Inspiration]
+      operationId: searchInspirationMedia
+      summary: Search the inspiration media index
+      description: |
+        Search the cross-platform media index behind the SuperX app's
+        Inspiration > Media tab: short-form video and image posts from X,
+        Instagram, YouTube, Threads, Reddit and LinkedIn, with captions, a
+        content summary and engagement counts. Use it for visual format and
+        hook research, never to copy.
+
+        Media file URLs are not exposed through the API; open `source_url`
+        for the original post.
+
+        Owner-scoped, so there is no `account_id`. Omit `q` to BROWSE the
+        newest media instead of searching; `meta.mode` reports which ran, and
+        only `search` results carry a `score`. Unlike the app there is no
+        personalisation: the app fills an empty search box from the signed-in
+        person's profile and click history, which an owner-scoped key has no
+        equivalent of.
+
+        There is NO pagination: the index returns at most 120 items per
+        query, and `limit` only trims that. Ask for the 120 and filter on
+        your side rather than looking for a page parameter.
+
+        Counts as a read and costs no enrichment units. The media index has
+        two caps of its own, per account: a burst of 20 refilling one every
+        3 seconds, and 500 FRESH searches per UTC day. Repeats of a recent
+        identical search are served from a short-lived cache and do not count
+        against the daily cap. Both return `429 rate_limited` with
+        `Retry-After`.
+      parameters:
+        - name: q
+          in: query
+          description: What to search for (max 300 characters). Omit to browse the newest media.
+          schema: { type: string, maxLength: 300 }
+        - name: platforms
+          in: query
+          description: |
+            Comma-separated platforms to include. Default:
+            `instagram,youtube,x,threads`.
+          schema:
+            type: string
+            example: "youtube,instagram"
+        - name: time_filter
+          in: query
+          description: How recent the media must be.
+          schema:
+            type: string
+            enum: [all, "24h", "7d", "30d"]
+            default: all
+        - name: media_type
+          in: query
+          description: Media kind.
+          schema:
+            type: string
+            enum: [all, video, image]
+            default: all
+        - name: content_type
+          in: query
+          description: |
+            Free-text content-type label as stored in the index (max 50
+            characters). There is no enumerated list: a label the index does
+            not use returns zero items and still counts against the daily
+            search cap, so leave it off unless you know the label.
+          schema: { type: string, maxLength: 50 }
+        - name: limit
+          in: query
+          description: Items to return (1-120). 120 is everything one query can return.
+          schema: { type: integer, minimum: 1, maximum: 120, default: 20 }
+      responses:
+        "200":
+          description: Matching media items.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/MediaItem" }
+                  meta:
+                    type: object
+                    properties:
+                      mode:
+                        type: string
+                        enum: [search, browse]
+                        description: search = ranked against your query, browse = newest first.
+                      total:
+                        type: integer
+                        description: Items the index returned before the `limit` slice.
+              example:
+                data:
+                  - id: "ig_3421887766"
+                    platform: instagram
+                    title: "3 hooks that made this reel go to 2M"
+                    caption: "The first second is everything."
+                    summary: "Creator breaks down three opening lines and why each one holds attention."
+                    content_type: "educational"
+                    source_url: "https://instagram.com/p/Cxyz123"
+                    author_username: "hookschool"
+                    author_url: "https://instagram.com/hookschool"
+                    posted_at: "2026-08-28T12:11:00.000Z"
+                    like_count: 48211
+                    view_count: 2041882
+                    comment_count: 611
+                    share_count: 2044
+                    engagement_tier: "high"
+                    score: 0.7412
+                meta: { mode: search, total: 120 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
   /v1/contacts:
     get:
@@ -5623,6 +5757,363 @@ paths:
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
+  /v1/x/posts/{id}:
+    get:
+      tags: [X Lookups]
+      operationId: lookupXPost
+      summary: Look up one public post live
+      description: |
+        Read one public X post as it is right now: full text (never
+        shortened), author, engagement counts, media, link card, and the
+        quoted post one level deep when there is one.
+
+        Owner-scoped, so there is no `account_id`: nothing upstream is
+        per-X-account. Costs ONE live-enrichment unit, TWO with
+        `include_quotes`, and also draws on the shared allowance of 300 live
+        lookups per UTC day that Ask SuperX in the app uses (see
+        [Rate limits](/rate-limits#live-x-lookups)). Repeat lookups of the
+        same post within 15 minutes may be served from a server-side cache:
+        they still cost their enrichment units but do not touch the daily
+        allowance.
+
+        `404 post_not_found` means the post is deleted, protected, or the id
+        is wrong. Because the upstream batch read reports a missing post and
+        a failed read identically, an occasional transient upstream failure
+        surfaces here too, so retry once before concluding the post is gone.
+
+        The `X-RateLimit-*` headers on this endpoint report the ENRICHMENT
+        window, not the ordinary read window.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Numeric X post id (the digits at the end of a post URL).
+          schema: { type: string, pattern: "^[0-9]{1,25}$" }
+        - name: include_quotes
+          in: query
+          description: |
+            Also return a page of the posts quoting this one (up to 20, not
+            exhaustive). Costs a second enrichment unit.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The post.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      post: { $ref: "#/components/schemas/XPost" }
+                      quotes:
+                        type: array
+                        description: Present only when `include_quotes` was set.
+                        items: { $ref: "#/components/schemas/XPost" }
+                      quotes_note:
+                        type: string
+                        description: |
+                          What the `quotes` page covers, or why it is empty.
+                          Present only when `include_quotes` was set.
+              example:
+                data:
+                  post:
+                    id: "1938765432109876543"
+                    url: "https://x.com/buildersam/status/1938765432109876543"
+                    text: "I built my first product in 30 days with zero audience. Here is exactly what I would do differently:"
+                    created_at: "2026-06-20T15:04:00.000Z"
+                    author:
+                      x_user_id: "44196397"
+                      username: "buildersam"
+                      name: "Sam Fields"
+                      avatar_url: "https://pbs.twimg.com/profile_images/1/avatar.jpg"
+                      verified: true
+                      followers_count: 8421
+                    metrics:
+                      likes: 4211
+                      replies: 312
+                      reposts: 388
+                      quotes: 44
+                      views: 512000
+                      bookmarks: 1904
+                    in_reply_to_id: null
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/PostNotFound" }
+        "429": { $ref: "#/components/responses/LookupQuotaExceeded" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/x/posts/{id}/replies:
+    get:
+      tags: [X Lookups]
+      operationId: getXPostReplies
+      summary: Top replies to a public post
+      description: |
+        The best-liked DIRECT replies to a public post, read live from X.
+
+        This walks up to 3 relevance-ranked upstream pages (about 60
+        candidate replies), ranks what it found by likes and returns the top
+        `limit`. It is a SAMPLE of the strongest replies, not every reply and
+        not chronological order, and it cannot page further. To collect
+        everyone who replied to a post, use the audience collections built in
+        the SuperX app (`GET /v1/datasets`).
+
+        Unlike the same feature inside the SuperX app, replies written by the
+        account owner themselves are NOT filtered out: an owner-scoped read
+        has no "active account" to compare against.
+
+        Costs a flat THREE live-enrichment units and draws on the shared
+        300/day live-lookup allowance (one unit of that per page actually
+        fetched). `data.post` is the post being replied to when the upstream
+        payload carried it, and null otherwise; it is never a second lookup.
+
+        The `X-RateLimit-*` headers on this endpoint report the ENRICHMENT
+        window, not the ordinary read window.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Numeric X post id.
+          schema: { type: string, pattern: "^[0-9]{1,25}$" }
+        - name: limit
+          in: query
+          description: Replies to return, best-liked first (1-20).
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+      responses:
+        "200":
+          description: The top replies found.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      post_id: { type: string }
+                      post:
+                        allOf:
+                          - $ref: "#/components/schemas/XPost"
+                        nullable: true
+                        description: The post being replied to, when the payload carried it.
+                      replies:
+                        type: array
+                        items: { $ref: "#/components/schemas/XPost" }
+                      replies_scanned:
+                        type: integer
+                        description: Direct replies seen across the pages walked, before the `limit` slice.
+                      note:
+                        type: string
+                        description: What this sample covers, in plain words.
+              example:
+                data:
+                  post_id: "1938765432109876543"
+                  post: null
+                  replies:
+                    - id: "1938767777109876543"
+                      url: "https://x.com/janedev/status/1938767777109876543"
+                      text: "The 30-day constraint is the whole trick. Deadlines beat motivation."
+                      created_at: "2026-06-20T15:31:00.000Z"
+                      author:
+                        x_user_id: "1290011"
+                        username: "janedev"
+                        name: "Jane"
+                        avatar_url: "https://pbs.twimg.com/profile_images/2/avatar.jpg"
+                        verified: false
+                        followers_count: 3110
+                      metrics:
+                        likes: 288
+                        replies: 12
+                        reposts: 4
+                        quotes: 0
+                        views: 41022
+                        bookmarks: 19
+                      in_reply_to_id: "1938765432109876543"
+                  replies_scanned: 47
+                  note: "Top direct replies by likes, from up to 3 relevance-ranked pages (about 60 candidates). Not exhaustive and not chronological. Replies the account owner wrote themselves are included."
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/PostNotFound" }
+        "429": { $ref: "#/components/responses/LookupQuotaExceeded" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/x/users/{handle}:
+    get:
+      tags: [X Lookups]
+      operationId: lookupXUser
+      summary: Look up one public profile live
+      description: |
+        Read one public X profile as it is right now: bio, location, link,
+        follower and following counts, post count, join date and pinned post
+        id. The handle may be given with or without a leading `@`.
+
+        Owner-scoped, no `account_id`. Costs ONE live-enrichment unit and
+        draws on the shared 300/day live-lookup allowance. Repeat lookups
+        within 15 minutes may be served from a server-side cache.
+
+        This is a public lookup for ANY handle, unlike `GET /v1/contacts/{id}`,
+        which is limited to people this account already has a relationship
+        with and returns SuperX's stored profile plus the lists they are in.
+
+        The `X-RateLimit-*` headers on this endpoint report the ENRICHMENT
+        window, not the ordinary read window.
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          description: The account's @handle, 1-15 letters, numbers or underscores (a leading @ is allowed).
+          schema: { type: string }
+      responses:
+        "200":
+          description: The profile.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/XProfile" }
+              example:
+                data:
+                  x_user_id: "44196397"
+                  username: "buildersam"
+                  name: "Sam Fields"
+                  avatar_url: "https://pbs.twimg.com/profile_images/1/avatar.jpg"
+                  bio: "Building small products in public."
+                  location: "Lisbon"
+                  url: "https://buildersam.com"
+                  verified: true
+                  followers_count: 8421
+                  following_count: 512
+                  posts_count: 9210
+                  created_at: "2019-03-04T09:12:00.000Z"
+                  pinned_post_id: "1938765432109876543"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/UserNotFound" }
+        "429": { $ref: "#/components/responses/LookupQuotaExceeded" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/x/users/{handle}/posts:
+    get:
+      tags: [X Lookups]
+      operationId: getXUserPosts
+      summary: Latest posts of a public account
+      description: |
+        One live timeline page (about 20 posts) for any public account,
+        newest first, with engagement counts. The up-to-the-minute source for
+        what an account just posted.
+
+        Replies are included and carry `in_reply_to_id`; a post flagged
+        `is_pinned` is the account's pinned post and is usually old, not
+        recent. `exclude_reposts=true` drops reposts, and because only ONE
+        page is fetched, fewer than `limit` posts can come back after the
+        filter.
+
+        Owner-scoped, no `account_id`. Costs ONE live-enrichment unit when
+        SuperX already knows the handle and TWO when it does not (a live
+        profile lookup resolves the handle first);
+        `data.profile_resolved_locally` reports which happened. Draws on the
+        shared 300/day live-lookup allowance either way.
+
+        The `X-RateLimit-*` headers on this endpoint report the ENRICHMENT
+        window, not the ordinary read window.
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          description: The account's @handle, 1-15 letters, numbers or underscores (a leading @ is allowed).
+          schema: { type: string }
+        - name: limit
+          in: query
+          description: Posts to return (1-20).
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        - name: exclude_reposts
+          in: query
+          description: Return only the account's own posts, dropping reposts.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The account's latest posts.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      handle: { type: string }
+                      profile_resolved_locally:
+                        type: boolean
+                        description: |
+                          True when SuperX already knew the handle, so this
+                          call cost one unit rather than two.
+                      posts:
+                        type: array
+                        items: { $ref: "#/components/schemas/XPost" }
+                      note:
+                        type: string
+                        description: What this page covers, in plain words.
+              example:
+                data:
+                  handle: "buildersam"
+                  profile_resolved_locally: true
+                  posts:
+                    - id: "1938765432109876543"
+                      url: "https://x.com/buildersam/status/1938765432109876543"
+                      text: "I built my first product in 30 days with zero audience."
+                      created_at: "2026-06-20T15:04:00.000Z"
+                      author:
+                        x_user_id: "44196397"
+                        username: "buildersam"
+                        name: "Sam Fields"
+                        avatar_url: "https://pbs.twimg.com/profile_images/1/avatar.jpg"
+                        verified: true
+                        followers_count: 8421
+                      metrics:
+                        likes: 4211
+                        replies: 312
+                        reposts: 388
+                        quotes: 44
+                        views: 512000
+                        bookmarks: 1904
+                      in_reply_to_id: null
+                  note: "One live timeline page, newest first. A post flagged is_pinned is the pinned post and is usually old. Replies are included (they carry in_reply_to_id)."
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/UserNotFound" }
+        "429": { $ref: "#/components/responses/LookupQuotaExceeded" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
   /v1/docs:
     get:
       tags: [Meta]
@@ -6771,6 +7262,171 @@ components:
         The `409 dataset_not_ready` body: the standard envelope plus the
         dataset's current status, so a poller can tell "wait" from "wrong id".
 
+    XPost:
+      type: object
+      description: |
+        One public X post read live. Text is never shortened. Optional keys
+        (`is_pinned`, `is_repost`, `entities`, `media`, `card`, `quoted_post`)
+        are present only when the post has them.
+      properties:
+        id:
+          type: string
+          description: Numeric X post id, as a string.
+        url:
+          type: string
+        text:
+          type: string
+          description: The full post text.
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        author:
+          type: object
+          nullable: true
+          properties:
+            x_user_id: { type: string }
+            username: { type: string, nullable: true }
+            name: { type: string, nullable: true }
+            avatar_url: { type: string, nullable: true }
+            verified:
+              type: boolean
+              nullable: true
+              description: |
+                Null when the upstream payload for that read does not carry
+                it (single-post lookups and their quoted posts).
+            followers_count: { type: integer, nullable: true }
+        metrics:
+          type: object
+          properties:
+            likes: { type: integer }
+            replies: { type: integer }
+            reposts: { type: integer }
+            quotes: { type: integer }
+            views: { type: integer, nullable: true }
+            bookmarks: { type: integer }
+        in_reply_to_id:
+          type: string
+          nullable: true
+          description: Set when this post is a reply; the id of the post it answers.
+        is_pinned:
+          type: boolean
+          description: Present and true only on the account's pinned post (timeline reads).
+        is_repost:
+          type: boolean
+          description: Present and true only on a repost of someone else's post.
+        entities:
+          type: array
+          description: t.co link mappings, so short links can be rendered as their real destination.
+          items:
+            type: object
+            properties:
+              url: { type: string }
+              display_url: { type: string, nullable: true }
+              expanded_url: { type: string, nullable: true }
+        media:
+          type: array
+          description: Attached media. `video_url` is a playable MP4 for videos and GIFs.
+          items:
+            type: object
+            properties:
+              type: { type: string, example: photo }
+              url: { type: string, nullable: true }
+              video_url: { type: string, nullable: true }
+              width: { type: integer }
+              height: { type: integer }
+        card:
+          type: object
+          description: Link preview card, when the post has one.
+          properties:
+            url: { type: string, nullable: true }
+            title: { type: string }
+            description: { type: string, nullable: true }
+            domain: { type: string, nullable: true }
+            image: { type: string, nullable: true }
+        quoted_post:
+          allOf:
+            - $ref: "#/components/schemas/XPost"
+          nullable: true
+          description: |
+            The post this one quotes, ONE level deep only - a quote of a
+            quote is not nested further.
+
+    XProfile:
+      type: object
+      description: One public X profile read live.
+      properties:
+        x_user_id: { type: string }
+        username: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+        avatar_url: { type: string, nullable: true }
+        bio:
+          type: string
+          description: Empty string when the account has no bio.
+        location: { type: string, nullable: true }
+        url:
+          type: string
+          nullable: true
+          description: The link in the profile, expanded past t.co where X provides it.
+        verified: { type: boolean }
+        followers_count: { type: integer, nullable: true }
+        following_count: { type: integer, nullable: true }
+        posts_count: { type: integer, nullable: true }
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the account joined X.
+        pinned_post_id:
+          type: string
+          nullable: true
+          description: Pass it to GET /v1/x/posts/{id} for the pinned post itself.
+        bio_entities:
+          type: array
+          description: t.co link mappings for links in the bio, when it has any.
+          items:
+            type: object
+            properties:
+              url: { type: string }
+              display_url: { type: string, nullable: true }
+              expanded_url: { type: string, nullable: true }
+
+    MediaItem:
+      type: object
+      description: One item from the cross-platform inspiration media index.
+      properties:
+        id: { type: string }
+        platform:
+          type: string
+          enum: [x, instagram, youtube, threads, reddit, linkedin]
+        title: { type: string }
+        caption: { type: string, nullable: true }
+        summary:
+          type: string
+          nullable: true
+          description: A short description of what the media shows.
+        content_type: { type: string, nullable: true }
+        source_url:
+          type: string
+          nullable: true
+          description: |
+            The original post on its own platform, and the ONLY link returned
+            here. The media files themselves (thumbnail, video) are not
+            exposed through the API; open `source_url` for the post.
+        author_username: { type: string, nullable: true }
+        author_url: { type: string, nullable: true }
+        posted_at: { type: string, format: date-time, nullable: true }
+        like_count: { type: integer }
+        view_count: { type: integer }
+        comment_count: { type: integer }
+        share_count: { type: integer }
+        engagement_tier: { type: string, nullable: true }
+        score:
+          type: number
+          description: |
+            Relevance against your query, 0 to 1, higher is closer. Present
+            in `search` mode only (never when browsing).
+
     EngageFeed:
       type: object
       properties:
@@ -7652,3 +8308,80 @@ components:
             error:
               code: dataset_has_no_people
               message: "This dataset has no people to add: own-content datasets hold your posts, and rows without an X account id are skipped."
+
+    PostNotFound:
+      description: |
+        No public post with that id: it is deleted, protected, or the id is
+        wrong. The upstream batch read reports a missing post and a failed
+        read identically, so an occasional transient failure surfaces here
+        too - retry once before concluding the post is gone.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: post_not_found
+              message: "No public post with that id. It may be deleted, protected, or the id may be wrong. A live lookup that fails upstream can also report this."
+
+    UserNotFound:
+      description: No public X account matches that handle (suspended, renamed, or misspelled).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: user_not_found
+              message: "No public X account matches that handle. It may be suspended, renamed, or misspelled."
+
+    LookupQuotaExceeded:
+      description: |
+        A live-lookup 429. Either the plan's per-minute or per-day enrichment
+        bucket is exhausted (`rate_limited`), or a daily live-lookup gate
+        stopped the call (`lookup_quota_exceeded`). Read `error.code` to tell
+        those two apart; both carry `Retry-After`.
+
+        `lookup_quota_exceeded` covers three cases and the body says which:
+        your own allowance is used up (`limit` is present, and that allowance
+        is shared with Ask SuperX in the app, resetting at midnight UTC); the
+        SuperX-wide allowance is used up (no `limit`, since it is not your
+        account's budget, still resetting at midnight); or the counter could
+        not be verified, in which case the call is refused rather than run
+        unmetered (no `limit`, short `retry_after`). Always read
+        `error.retry_after` rather than assuming midnight.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      retry_after:
+                        type: integer
+                        description: Seconds to wait before retrying.
+                      limit:
+                        type: integer
+                        description: |
+                          Your daily live-lookup allowance. Present ONLY when
+                          it is your own allowance that ran out; absent for a
+                          SuperX-wide cap or an unverifiable counter.
+                      reset_at:
+                        type: integer
+                        description: |
+                          Unix seconds at the next UTC midnight. Present on
+                          the two allowance cases, absent when the counter
+                          could not be verified.
+          example:
+            error:
+              code: lookup_quota_exceeded
+              message: "Today's live X lookup allowance (300 lookups) is used up. It is shared with Ask SuperX in the app and resets at midnight UTC."
+              retry_after: 20400
+              limit: 300
+              reset_at: 1789430400

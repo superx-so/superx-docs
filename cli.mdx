@@ -116,11 +116,18 @@ The credentials file takes priority over the environment variable when both exis
 | `superx datasets:rows <id>` | Read a page of a ready dataset's rows, exactly as they were collected |
 | `superx datasets:export <id>` | Download a ready dataset as CSV (`--out <file>`, or `--out -` to stream to stdout) |
 | `superx datasets:add-to-list <id>` | Copy the people in a ready dataset into a contact list you created (`--list-id`) |
+| `superx x:post <id\|url>` | Look up one public X post live (`--quotes` also fetches a page of quote posts) |
+| `superx x:replies <id\|url>` | The top replies by likes to a public post, live (`--limit`, up to 20) |
+| `superx x:user <handle>` | Look up one public X profile live |
+| `superx x:user-posts <handle>` | One live page of an account's latest posts (`--limit`, `--no-reposts`) |
+| `superx inspiration:media [query]` | Search the cross-platform media index (`--platforms`, `--time-filter`, `--media-type`, `--content-type`, `--limit` up to 120); omit the query to browse the newest |
 | `superx docs` | Print the SuperX API quickstart (markdown, no auth needed) |
 
 Flags mirror the API's query parameters: `--account`, `--limit`, `--page`, `--since`/`--until`, `--sort`, `--type`, `--status`, `--from`/`--to`. Run any command with `--help` for its full flag list and examples.
 
 Datasets are created in the SuperX app (Ask) for now; the CLI reads them. `datasets:rows`, `datasets:export` and `datasets:add-to-list` need a dataset whose status is `ready`, so poll `datasets:get <id>` first; anything else returns `409 dataset_not_ready`. Export is CSV only (XLSX downloads stay in the app), and `datasets:export` writes a filename matching the app download's naming pattern (`superx-dataset-<title>-<date>.csv`) unless `--out` says otherwise.
+
+The `x:*` commands read X live rather than SuperX's stored data. They cost the tighter enrichment allowance (1 unit each, 3 for `x:replies`, 2 for `x:post --quotes` or an `x:user-posts` handle SuperX has never seen) and share an allowance of 300 live lookups a day with Ask SuperX in the app; over it is a `lookup_quota_exceeded` error that resets at midnight UTC. Repeat lookups within 15 minutes may come from a server-side cache. `x:replies` samples the best-liked replies from up to 3 pages, so it is not the full reply list. `inspiration:media` costs no enrichment and is not personalised: with no query it browses the newest media. It returns no media file URLs; `source_url` opens the original post on its own platform. It has no pagination, returning at most 120 items per query, so ask for `--limit 120` and filter locally rather than calling it repeatedly. `--content-type` is a free-text label as stored in the index, with no list to choose from: a label the index does not use returns zero items and still counts against the daily search cap.
 
 Note that drafts have no scheduled time, so `--from`/`--to` filters on `scheduled:list` exclude drafts; use `--status draft` to list them.
 
