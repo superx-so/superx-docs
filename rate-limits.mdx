@@ -77,10 +77,15 @@ Typical costs today:
 | `POST /v1/engage/reply-draft` | Measured, typically 2 (the reply write plus the shared post-editor pass). With a `post_id` it also spends one live X lookup |
 | `POST /v1/posts/remix` | Measured, typically 2 |
 | `POST /v1/tools/inline-edit`, `/rephrase`, `/factcheck`, `/algorithm-predict` | Measured, typically 1 each |
+| `POST /v1/context/style-guide/regenerate` | Free |
+| `POST /v1/context/products/{id}/scrape` | Free |
+| `POST /v1/signals/keywords/suggest`, `/v1/signals/icp/expand`, `/v1/signals/icp/expand-from-url` | Free |
 
 Drafts that fail to generate are refunded, and a call where every draft failed returns `502 generation_failed` with nothing charged. A lead search that never reaches X is not charged either.
 
 A cover generation that fails outright is refunded in full. A cover that TIMES OUT (`504`) keeps its 25 credits: the render may well have completed and landed in the article's cover history, so read the article before retrying. The reply draft and the four composer tools refund in full when the model call fails before it produces anything.
+
+The free calls above charge nothing at all, so they send no `X-Credits-Charged` header. They still send `X-Credits-Remaining` and `X-Credits-Reset`, and they still have ceilings of their own: see the two sections below.
 
 Research is settled when the run finishes, which for a background run (more than 5 profiles) is after the `202`: the response body cannot report a final figure, so read the pool with `GET /v1/me` afterwards. The same is true of a background refinement.
 
@@ -129,11 +134,23 @@ Some AI actions also carry a per-day count cap per plan, so an unusually cheap r
 
 The uncapped actions read no live data, so credits are what bound them (plus, for refine, the 10-collections-a-day allowance, and for cover generation, the account's own daily and monthly cover caps).
 
+The free actions are not in that table because they cost no credits, but each has its own `ai_action_limited` ceiling with `scope: "account"`:
+
+| Action | Endpoint | Limit |
+| --- | --- | --- |
+| Style guide regeneration | `POST /v1/context/style-guide/regenerate` | Once an hour per account. `reset_at` is an hour after the last SUCCESSFUL run, not midnight |
+| Style guide read live | `POST /v1/context/style-guide/regenerate` on an account with fewer than 5 stored posts | 3 attempts a day per account, resetting at midnight UTC, on top of the platform fair-use ceiling below |
+| Page reads | `POST /v1/context/products/{id}/scrape`, `POST /v1/signals/icp/expand-from-url` | 20 a day per account, shared with the same feature in the SuperX app |
+
+`POST /v1/signals/keywords/suggest` and `POST /v1/signals/icp/expand` have no ceiling of their own: they run inside SuperX's own process, so the short-term limiter the SuperX app applies to them does not reach the API and your plan's request rate limit is their only bound. Each is still a model call, so keep them occasional rather than looping. `POST /v1/signals/icp/expand-from-url` is the exception: it goes through the app, so the app's limiter binds it too, and more than 10 calls in 10 minutes returns `429 rate_limited` (honour `Retry-After`; it clears in about a minute) rather than `ai_action_limited`.
+
+All five free endpoints are POSTs, so all five need a key with the `write` scope, as every non-GET route on this API does, whether or not they create anything.
+
 Credit and action limits fail closed: when SuperX cannot verify your balance or your day count, the call is refused rather than run for free.
 
 ### Fair-use ceiling on live-data actions
 
-The actions that read X live for you (a lead search, a research run) also draw on a platform-wide daily ceiling shared by every SuperX account. It exists so that no single integration can exhaust what everyone else relies on; it is generous enough that normal use never meets it, and it is not a per-account quota you can raise by upgrading.
+The actions that read X live for you (a lead search, a research run, and the style-guide fallback below) also draw on a platform-wide daily ceiling shared by every SuperX account. It exists so that no single integration can exhaust what everyone else relies on; it is generous enough that normal use never meets it, and it is not a per-account quota you can raise by upgrading.
 
 Reaching it returns the same `429 ai_action_limited`, with `scope: "platform"` instead of `"account"`:
 
@@ -150,6 +167,8 @@ Reaching it returns the same `429 ai_action_limited`, with `scope: "platform"` i
 ```
 
 Always read `scope` before telling a user anything: on `platform` their own allowance is untouched, so wait for `reset_at` and retry rather than reporting them as out of quota. Like the other ceilings, it fails closed.
+
+One free endpoint reaches this ceiling too. `POST /v1/context/style-guide/regenerate` normally reads the account's posts out of SuperX and touches nothing live, but an account with fewer than 5 recent posts stored has them read live instead, and that read is counted here (up to 4 requests). So a `scope: "platform"` refusal on the style guide means "a brand new account could not be read right now", never "you are out of credits". That live read is also limited to 3 attempts per account per day, because the hourly cooldown only starts after a run that SUCCEEDS: an account whose live read keeps coming back too thin would otherwise be free to retry all day against a ceiling everyone shares. Over the 3, the same 429 comes back with `scope: "account"` and a midnight `reset_at`.
 
 ## Live X lookups
 

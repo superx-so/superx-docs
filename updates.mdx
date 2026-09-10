@@ -3,9 +3,9 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
-## 2026-09-10: Reply drafts, remix and the composer tools
+## 2026-09-10: Reply drafts, remix, the composer tools and the free helpers
 
-The writing helpers from the SuperX app composer are now on the API, MCP and the CLI. Every one of them returns TEXT and writes nothing: nothing here is posted, scheduled or sent.
+The writing helpers from the SuperX app composer are now on the API, MCP and the CLI, along with five free helpers that keep the account's writing context current. Every one of them returns TEXT or settings and writes nothing to X: nothing here is posted, scheduled or sent.
 
 **API**
 
@@ -18,15 +18,22 @@ The writing helpers from the SuperX app composer are now on the API, MCP and the
 - Costs: all six are measured AI credits, typically 1, and 2 for a remix or a reply draft (the reply write plus the shared post-editor pass). None of them spends a live X request except a reply draft with a `post_id`, which uses one lookup from the same 300-a-day allowance the live X lookups draw on. All six need a key with the `write` scope, and all six work on an account shared with you, because they change nothing on it
 - `POST /v1/articles/{id}/cover` now charges a FLAT 25 AI credits per generation, whatever the render actually costs, and reports it in `meta.credits_charged` and a new `X-Credits-Charged` header. The account's daily and monthly cover caps are unchanged. A generation that fails outright is refunded in full; a `504` keeps the charge because the cover may still have landed, so read the article before retrying
 - New error code `post_has_no_text` (422) on `POST /v1/engage/reply-draft`, when the post you named carries no text to reply to
+- `POST /v1/context/style-guide/regenerate` rebuilds the account's GENERATED style guide from its recent posts, the block `GET /v1/context` returns as `style_guide.generated`. Your own `audience_override` and `vocabulary_override` are untouched and keep outranking it. Free, and limited to once an hour per account (the hour runs from the last SUCCESSFUL run); an account with fewer than 5 recent posts stored has them read live, which allows 3 attempts a day and also draws on the platform-wide fair-use ceiling
+- `POST /v1/context/products/{id}/scrape` re-reads a saved product's page and refreshes its stored name, description and details. The url comes from the SAVED product, so change it with `PATCH /v1/context/products/{id}` first if it moved. Free, on the account's allowance of 20 page reads a day, shared with the SuperX app
+- `POST /v1/signals/keywords/suggest` turns a plain audience description into 2 or 3 keyword-watch ideas, and `POST /v1/signals/icp/expand` turns the same description into the rubric signal agents score people against. Both are free and create nothing: a suggestion becomes real when you pass it as a keyword on `POST /v1/signals/agents`, while the rubric has nowhere to be saved, so use it to sharpen the `icp_description` you create an agent with
+- `POST /v1/signals/icp/expand-from-url` reads a product or company website and returns an audience description, the rubric and keyword ideas in one call. Free, on the same 20 page reads a day, and it also inherits the SuperX app's short-term limit of 10 prefills per 10 minutes, which returns `429 rate_limited` rather than `ai_action_limited`
+- All five are POSTs, so all five need a key with the `write` scope, as every non-GET route on this API does, even the three that create nothing. They charge nothing, so they send no `X-Credits-Charged` header; `X-Credits-Remaining` and `X-Credits-Reset` still ride along. New error codes: 400 `not_enough_posts`, 404 `product_not_found` and 422 `scrape_failed`, and `ai_action_limited` with `scope: "account"` now also covers the once-an-hour style guide limit and the 20-a-day page reads
 
 **MCP**
 
-- Six new tools: `draft_reply`, `remix_post`, `inline_edit`, `rephrase_text`, `fact_check` and `predict_algorithm`. All six need a key with the write scope, because all six spend AI credits. 89 tools in total
+- Six new writing tools: `draft_reply`, `remix_post`, `inline_edit`, `rephrase_text`, `fact_check` and `predict_algorithm`. All six need a key with the write scope, because all six spend AI credits
+- Five free tools: `regenerate_style_guide` and `scrape_product` (write scope, since they change the account's stored context) plus the read-only `suggest_keywords`, `expand_icp` and `expand_icp_from_url`. 94 tools in total
 - `generate_article_cover` now reports `credits_charged`
 
 **CLI**
 
 - `superx engage:reply-draft`, `superx posts:remix`, `superx tools:inline-edit`, `superx tools:rephrase`, `superx tools:factcheck` and `superx tools:predict`
+- `superx context:regenerate-style-guide`, `superx context:scrape-product <id>`, `superx signals:suggest-keywords` and `superx signals:expand-icp` (`--text` or `--url`)
 
 ## 2026-09-10: Lead search, profile research and outreach drafts
 

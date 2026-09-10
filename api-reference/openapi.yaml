@@ -3025,6 +3025,227 @@ paths:
         "500": { $ref: "#/components/responses/InternalError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
+  /v1/signals/keywords/suggest:
+    post:
+      tags: [Signals]
+      operationId: suggestKeywords
+      summary: Suggest keyword watches
+      description: |
+        Turns a plain description of an audience into 2 or 3 keyword-watch
+        ideas, the same ones the SuperX app stages when a user sets up a
+        signal agent. Each suggestion is plain language, not an X search
+        query: compilation happens when the keyword is added to an agent.
+
+        Free. Nothing is created and no AI credits are charged. Pass a
+        suggestion you like as a `keywords` entry on
+        `POST /v1/signals/agents`, or as a `keyword_watch` signal on
+        `POST /v1/signals/agents/{id}/signals`, to start watching it.
+
+        This helper runs in SuperX's own process rather than through the
+        app, so the app's short-term limiter does not apply and your plan's
+        request rate limit is the only bound. It is still a model call each
+        time, so keep it occasional.
+
+        Needs a key with the `write` scope. Every non-GET route on this API
+        does, and this one is a POST because the description goes in the
+        body; it still creates nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [icp_description]
+              properties:
+                icp_description:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+                  description: Who the ideal customer is, in plain language.
+                account_id: { type: string }
+            example:
+              icp_description: "B2B SaaS founders worried about churn"
+      responses:
+        "200":
+          description: The suggested keyword watches.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      suggestions:
+                        type: array
+                        items: { $ref: "#/components/schemas/KeywordSuggestion" }
+              example:
+                data:
+                  suggestions:
+                    - query: "churn is killing us"
+                    - query: "looking for retention tools"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/signals/icp/expand:
+    post:
+      tags: [Signals]
+      operationId: expandIcp
+      summary: Expand an audience description into a rubric
+      description: |
+        Turns a plain description of an audience into the structured rubric
+        signal agents score people against: who the ideal customer is, the
+        needs that make someone a fit, the disqualifiers, and one example of
+        a match and a non-match.
+
+        Free. Nothing is created and no AI credits are charged. The rubric is
+        a reading of the description rather than a field you can store:
+        agents are created with `icp_description`, so use this to sharpen
+        that text before calling `POST /v1/signals/agents`, or to score
+        people yourself.
+
+        This helper runs in SuperX's own process rather than through the
+        app, so the app's short-term limiter does not apply and your plan's
+        request rate limit is the only bound. It is still a model call each
+        time, so keep it occasional.
+
+        Needs a key with the `write` scope. Every non-GET route on this API
+        does, and this one is a POST because the description goes in the
+        body; it still creates nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [icp_description]
+              properties:
+                icp_description:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+                  description: Who the ideal customer is, in plain language.
+                account_id: { type: string }
+            example:
+              icp_description: "Indie founders building SaaS in public"
+      responses:
+        "200":
+          description: The scoring rubric.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      rubric: { $ref: "#/components/schemas/IcpRubric" }
+              example:
+                data:
+                  rubric:
+                    who: "Solo founders shipping a SaaS product in public"
+                    needs: ["growing an audience while building", "launch distribution"]
+                    disqualifiers: ["agency owners", "accounts that only repost"]
+                    example_match: "building my SaaS in public, $2k MRR, shipping weekly"
+                    example_non_match: "growth agency for SaaS brands, DM for rates"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/signals/icp/expand-from-url:
+    post:
+      tags: [Signals]
+      operationId: expandIcpFromUrl
+      summary: Build an audience profile from a website
+      description: |
+        Reads a product or company website and infers who its ideal customers
+        are on X: an audience description, the scoring rubric, and
+        keyword-watch ideas, in one call. A bare domain is accepted.
+
+        Free: no AI credits. The page read runs on the account's allowance of
+        20 page reads a day, shared with the SuperX app, so an exhausted
+        allowance returns `429 ai_action_limited` with `scope: "account"`.
+        Unlike the two helpers above, this one goes through the SuperX app,
+        so the app's short-term limiter binds it too: more than 10 calls in
+        10 minutes returns `429 rate_limited`, which clears in about a
+        minute. Takes up to a minute.
+
+        Nothing is created, but the call needs a key with the `write` scope,
+        as every non-GET route on this API does. Pass `icp_description` to
+        `POST /v1/signals/agents` as the agent's ICP, and the suggestions as
+        its keywords.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  maxLength: 2000
+                  description: The website to read. A bare domain is accepted.
+                account_id: { type: string }
+            example:
+              url: "superx.so"
+      responses:
+        "200":
+          description: The inferred audience description, rubric and keyword ideas.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      icp_description: { type: string }
+                      rubric: { $ref: "#/components/schemas/IcpRubric" }
+                      suggestions:
+                        type: array
+                        items: { $ref: "#/components/schemas/KeywordSuggestion" }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "422":
+          description: The page could not be read (`scrape_failed`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: scrape_failed
+                  message: "That page could not be read. Check the url and try again."
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
   /v1/engage/feeds:
     get:
       tags: [Engage]
@@ -5165,6 +5386,167 @@ paths:
         "403": { $ref: "#/components/responses/ContextWriteForbidden" }
         "404": { $ref: "#/components/responses/ProductNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/context/style-guide/regenerate:
+    post:
+      tags: [Context]
+      operationId: regenerateStyleGuide
+      summary: Rebuild the generated style guide
+      description: |
+        Rewrites the account's GENERATED style guide from its recent posts,
+        the same way the Style Guide button on the SuperX app's Context page
+        does. The result is exactly the `style_guide.generated` block
+        `GET /v1/context` returns.
+
+        Your manual overrides (`style_guide.audience_override` and
+        `vocabulary_override`) are untouched and keep outranking the
+        generated guide everywhere.
+
+        Free: no AI credits are charged, so no `X-Credits-Charged` header is
+        sent. `X-Credits-Remaining` and `X-Credits-Reset` still are.
+
+        Three ceilings apply, all reported as `429 ai_action_limited`.
+        Regeneration is limited to once an hour per account
+        (`scope: "account"`; the hour runs from the last SUCCESSFUL run). An
+        account with fewer than 5 recent posts stored in SuperX has them read
+        live instead: that live read is limited to 3 attempts per account per
+        day (`scope: "account"`, resets at midnight UTC) and also draws on the
+        platform-wide fair-use ceiling shared by every account
+        (`scope: "platform"`). An account with enough stored posts meets
+        neither of the last two. Takes up to a minute.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: { type: string }
+      responses:
+        "200":
+          description: The rewritten style guide.
+          headers:
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      generated: { $ref: "#/components/schemas/StyleGuideGenerated" }
+                  meta:
+                    type: object
+                    properties:
+                      account_id: { type: string }
+              example:
+                data:
+                  generated:
+                    audience: "Indie founders and solo builders shipping in public."
+                    vocabulary: "Lowercase starts on ~70% of posts. Emojis on ~10%."
+                    generated_at: "2026-09-10T12:00:00.000Z"
+                meta:
+                  account_id: "1178367350552305665"
+        "400":
+          description: The account does not have enough recent posts to read a style from (`not_enough_posts`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: not_enough_posts
+                  message: "This account needs at least 5 recent posts before a style guide can be written from them."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/context/products/{id}/scrape:
+    post:
+      tags: [Context]
+      operationId: scrapeContextProduct
+      summary: Refresh a product from its page
+      description: |
+        Re-reads a saved product's page and refreshes its stored name,
+        description and details, the same way the SuperX app's Context page
+        does. The url comes from the SAVED product, never from the request:
+        change it with `PATCH /v1/context/products/{id}` first if it moved.
+
+        Free: no AI credits are charged, so no `X-Credits-Charged` header is
+        sent. The read runs on the account's allowance of 20 page reads a
+        day, shared with the SuperX app, so an exhausted allowance returns
+        `429 ai_action_limited` with `scope: "account"`. Takes up to a minute.
+
+        Returns the refreshed product, with a new `last_scraped_at`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: Numeric product id, from GET /v1/context.
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: { type: string }
+      responses:
+        "200":
+          description: The refreshed product.
+          headers:
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ContextProduct" }
+                  meta:
+                    type: object
+                    properties:
+                      account_id: { type: string }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ContextWriteForbidden" }
+        "404":
+          description: No product with that id belongs to this account (`product_not_found`), or account_id is not one of your accounts (`account_not_found`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: product_not_found
+                  message: "No product with that id belongs to this account."
+        "422":
+          description: The product page could not be read (`scrape_failed`). The product is unchanged apart from the attempt being recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: scrape_failed
+                  message: "This page could not be read. Check the product url and try again."
+        "429": { $ref: "#/components/responses/AiActionLimited" }
         "500": { $ref: "#/components/responses/InternalError" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -9899,6 +10281,52 @@ components:
           format: date-time
           nullable: true
 
+    StyleGuideGenerated:
+      type: object
+      description: The style guide SuperX writes from the account's recent posts. Your own style_guide overrides outrank it.
+      properties:
+        audience:
+          type: string
+          nullable: true
+          description: Who the account writes for.
+        vocabulary:
+          type: string
+          nullable: true
+          description: How the account writes, with how often each habit shows up.
+        generated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    KeywordSuggestion:
+      type: object
+      properties:
+        query:
+          type: string
+          description: A plain-language phrase to watch. Not an X search query; SuperX compiles it when the keyword is added to an agent.
+
+    IcpRubric:
+      type: object
+      description: The structured qualification rubric a signal agent scores people against.
+      properties:
+        who:
+          type: string
+          description: One sentence describing exactly who the ideal customer is.
+        needs:
+          type: array
+          items: { type: string }
+          description: The needs or pains that make someone a fit.
+        disqualifiers:
+          type: array
+          items: { type: string }
+          description: What rules a profile out even when it looks adjacent.
+        example_match:
+          type: string
+          description: A hypothetical X bio of someone who clearly fits.
+        example_non_match:
+          type: string
+          description: A hypothetical X bio of someone who looks close but does not fit.
+
     Tag:
       type: object
       properties:
@@ -10527,11 +10955,17 @@ components:
         is used up (`ai_credits_exhausted`, with the credit counters), or a
         daily cap on the action was hit (`ai_action_limited`).
 
-        On `ai_action_limited`, `error.scope` says which ceiling: `account`
-        is the plan's own daily cap for this action, `platform` is the
-        platform-wide fair-use ceiling on live-data actions, shared with every
-        SuperX account. A `platform` refusal is not about this account's
-        quota; wait for `reset_at` and retry.
+        On `ai_action_limited`, `error.scope` says which ceiling. `account`
+        is one of your own: the plan's daily cap for a metered action, the
+        once-an-hour limit on style guide regeneration (where `reset_at` is an
+        hour after the last run rather than midnight), the 3 live style-guide
+        attempts a day, or the 20 page reads a day shared with the SuperX app.
+        `platform` is the platform-wide fair-use ceiling on live-data actions,
+        shared with every SuperX account: a `platform` refusal is not about
+        this account's quota, so wait for `reset_at` and retry.
+
+        The free endpoints send `X-Credits-Remaining` and `X-Credits-Reset` on
+        this 429 as they do on a 200, since nothing was charged either way.
       headers:
         Retry-After:
           description: Seconds to wait before retrying. Sent on every flavour of this 429.
