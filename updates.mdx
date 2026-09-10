@@ -3,6 +3,19 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-11: Agent playbooks
+
+Every skill in Ask SuperX now has a documented CLI and MCP recipe. No API change: this is documentation over the endpoints that already shipped.
+
+**Docs**
+
+- New page [Agent playbooks](/playbooks): 28 recipes, one per SuperX skill, grouped by goal (recaps and analytics, content, queue, replies, leads, audiences and DMs, settings). Each entry gives the outcome, the CLI chain in order with its flags, the equivalent MCP tool chain by registered tool name, and the point where the chain STOPS, including what it costs in AI credits or daily allowances
+- Four recipes stop short of a send, and say so in the entry: Reply Sprint and Reply to Any Post end at reply TEXT that a person posts, and Warm Outreach Pipeline and Reply-to-DM Campaign end at a QUEUED campaign that the SuperX app delivers. Audience Export and My Content Export export CSV; XLSX stays in the SuperX app
+
+**CLI**
+
+- The `superx-agent` package ships a new `PLAYBOOKS.md` with the same 28 recipes, and `SKILL.md` gains a `## Playbooks` index so an agent can pick one by goal before opening the file
+
 ## 2026-09-10: DM campaigns and auto DM on scheduled posts
 
 The SuperX app's DM pipeline is now reachable from the API, MCP and the CLI. **Nothing in it sends a message at the time you call it.** A campaign ENQUEUES: the messages go into the account's own DM queue, the same one the app fills, and the app's scheduler sends them within the account's daily and monthly DM limits. Every create response is counts, not deliveries. You are responsible for the messages you queue under X's rules on automation and unsolicited contact.

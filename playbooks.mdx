@@ -1,0 +1,464 @@
+---
+title: "Agent playbooks"
+description: "Twenty-eight goal-shaped recipes, one per SuperX skill, each with its CLI chain, its MCP tool chain, and the point where it hands back to a person."
+---
+
+Every SuperX skill in the app has a matching recipe here. Pick the one that
+matches the goal, run the chain in order with the [CLI](/cli) or the
+[MCP server](/mcp-server), and hand the result to a person. Three rules hold in
+all twenty-eight: a post is a DRAFT unless someone asked for it to be scheduled
+(`scheduled:create` without `--at` publishes nothing); nothing here sends a
+reply or delivers a DM, because reply drafts are text a person posts and
+`dm:campaign` only ENQUEUES for the SuperX app to send; and `posts:publish` and
+`articles:publish` go out to X immediately and cannot be undone, so confirm the
+exact wording first, remembering that `posts:publish` REQUIRES
+`--idempotency-key` so a retry cannot post twice.
+
+`--account <account-id>` acts on a linked account, shown once below. It applies
+to the account-scoped commands: the posts, scheduled, replies, contacts, lists,
+engage, signals, dm, context, queue and articles families, plus the dataset
+commands that write for an account (`datasets:collect`, `datasets:refine`,
+`datasets:research`, `datasets:outreach-drafts`, `datasets:add-to-list`).
+
+Other commands are owner-scoped, and the CLI is strict, so passing `--account`
+to one is an error rather than a no-op. Nothing about them is per-X-account: the
+live lookups `x:post`, `x:replies`, `x:user` and `x:user-posts`, the inspiration
+searches `inspiration:search` and `inspiration:media`, and the dataset reads
+`datasets:list`, `datasets:get`, `datasets:rows` and `datasets:export`. A few
+id-addressed subcommands inside the account families are owner-scoped for the
+same reason, the id already naming the account, among them `articles:publish`,
+`scheduled:delete` and `lists:remove-member`. Where a chain below omits
+`--account`, that is deliberate; `superx <command> --help` is the check.
+
+Accounts other people shared with you are read-only. Values in angle brackets
+are placeholders you fill from the previous step's response.
+
+## Recaps and analytics
+
+### Weekly Growth Recap
+
+Your week in review: follower change, the posts that worked, new leads, one pattern to repeat and one focus for next week.
+
+```bash
+SINCE=$(date -u -v-7d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "7 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:analytics --since "$SINCE" --account <account-id>
+superx posts:list --sort likes --since "$SINCE" --limit 10
+superx signals:leads --since "$SINCE" --limit 20
+superx replies:received --sort recent --limit 20
+```
+
+MCP: `get_account_overview`, `get_post_analytics`, `get_signal_leads`, `get_audience_replies`.
+
+There is no recap command: write the recap from those four responses. Reads only, no AI credits.
+
+### Growth Plan Builder
+
+A multi-week plan tied to the account's real numbers: cadence, a reply target, and the format to repeat.
+
+```bash
+SINCE=$(date -u -v-90d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "90 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:analytics --since "$SINCE"
+superx posts:list --type posts --sort likes --since "$SINCE" --limit 25
+superx replies:list --limit 25
+superx queue:get
+```
+
+MCP: `get_account_overview`, `get_post_analytics`, `get_my_replies`, `get_queue_settings`.
+
+Stops at the written plan. Nothing is scheduled here, and no AI credits are spent.
+
+### Post Post-Mortem
+
+Why one post overperformed or flopped, measured against the account's own baseline.
+
+```bash
+SINCE=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "30 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:list --sort posted_at --since "$SINCE" --limit 25
+superx posts:analytics --since "$SINCE"
+superx x:user-posts <peer-handle> --no-reposts --limit 20
+```
+
+MCP: `get_post_analytics`, `get_account_overview`, `get_x_user_posts`.
+
+The peer lookup is optional and draws on the 300-a-day live X allowance. Very fresh posts have no metrics yet.
+
+### Top Performers Breakdown
+
+The ranked winners, the shape they share, and what to write more of.
+
+```bash
+SINCE=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "30 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:list --type posts --sort likes --since "$SINCE" --limit 25
+superx posts:analytics --since "$SINCE"
+```
+
+MCP: `get_post_analytics`, `get_account_overview`.
+
+Reads only. Synced numbers lag X by a few hours, so say so when the window includes today.
+
+### My Replies Report
+
+Which of the account's replies earned attention, and the pattern behind them.
+
+```bash
+superx replies:list --limit 25
+```
+
+MCP: `get_my_replies`.
+
+Page one can carry `metrics_pending` rows: replies sent from the app in the last 4 hours have no numbers yet, so leave them out of the ranking.
+
+## Content
+
+### Daily Post Ideas
+
+Two or three drafts for today, in the account's voice, ready to schedule.
+
+```bash
+SINCE=$(date -u -v-60d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "60 days ago" +"%Y-%m-%dT00:00:00Z")
+superx scheduled:list --status draft,scheduled --limit 100
+superx posts:list --type posts --sort likes --since "$SINCE" --limit 10
+superx posts:draft --brief "<the angle, data or notes to write from>" --count 3
+superx scheduled:create --text "<the draft the person picked>" --idempotency-key "ideas-<date>-1"
+```
+
+MCP: `get_scheduled_posts`, `get_post_analytics`, `draft_post`, `schedule_post`.
+
+`posts:draft` saves nothing: show the drafts, let the person edit one, then save the final wording. 3 AI credits per draft written.
+
+### Week of Posts
+
+A week of varied drafts spread across the week, one approval per post.
+
+```bash
+SINCE=$(date -u -v-60d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "60 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:list --type posts --sort likes --since "$SINCE" --limit 10
+superx queue:get
+superx posts:draft --brief "<theme for the week>" --count 3
+superx scheduled:create --text "<approved text>" --at "<UTC ISO-8601 with Z>" --idempotency-key "week-<n>-1"
+superx scheduled:list --status scheduled --limit 100
+```
+
+MCP: `get_post_analytics`, `get_queue_settings`, `draft_post`, `schedule_post`, `get_scheduled_posts`.
+
+Read the queue first so new times land on the account's real slots. Reuse the same idempotency key on a retry. 3 AI credits per draft written.
+
+### Thread Builder
+
+An idea or rough notes turned into a thread of up to 25 parts.
+
+```bash
+superx posts:draft --brief "<the idea or notes, plus the target length>" --count 1
+superx scheduled:create --part "<1/ hook>" --part "<2/ detail>" --part "<3/ close>" --idempotency-key "thread-<slug>-1"
+```
+
+MCP: `draft_post`, `schedule_post`.
+
+Max 25 parts and 25,000 characters in total. Repeat `--part` in posting order. 3 AI credits per draft written.
+
+### Repurpose a Winner
+
+The account's best post, reworked into fresh angles.
+
+```bash
+SINCE=$(date -u -v-90d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "90 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:list --type posts --sort likes --since "$SINCE" --limit 5
+superx posts:remix --text "<the winning post's text>" --closeness 70
+superx scheduled:create --text "<the remix the person picked>" --idempotency-key "repurpose-<slug>-1"
+```
+
+MCP: `get_post_analytics`, `remix_post`, `schedule_post`.
+
+Standalone posts only. `--closeness 0` keeps only the idea, `100` stays close to the original wording. A remix typically costs 2 AI credits (measured) and saves nothing on its own.
+
+### Viral Format Remix
+
+Proven hooks and structures from a library of 50M+ high-performing posts, rewritten in the account's voice.
+
+```bash
+superx inspiration:search "<topic>" --sort outlier --min-likes 500 --limit 10
+superx posts:draft --brief "<what this account would say on that topic>" --mirror "<the reference post's text>" --count 2
+superx scheduled:create --text "<approved text>" --idempotency-key "remix-<slug>-1"
+```
+
+MCP: `find_inspiration`, `draft_post`, `schedule_post`.
+
+`--mirror` copies the SHAPE of a proven post, not its words: pick one with room for the account's own facts. 3 AI credits per draft written.
+
+### Trending Now Scan
+
+High-performing posts in the niche from the last 48 hours, with angles to take.
+
+```bash
+SINCE=$(date -u -v-48H +"%Y-%m-%dT%H:00:00Z" 2>/dev/null || date -u -d "48 hours ago" +"%Y-%m-%dT%H:00:00Z")
+superx inspiration:search "<topic phrase>" --since "$SINCE" --sort likes --limit 10
+```
+
+MCP: `find_inspiration`.
+
+Run it once per topic phrase rather than sweeping the whole niche. Reads only, no AI credits.
+
+## Queue
+
+### Cadence & Queue Audit
+
+Gaps and pile-ups in the queue, a cadence verdict, and the reschedules to make.
+
+```bash
+superx queue:get
+superx scheduled:list --status scheduled --limit 100
+SINCE=$(date -u -v-30d +"%Y-%m-%dT00:00:00Z" 2>/dev/null || date -u -d "30 days ago" +"%Y-%m-%dT00:00:00Z")
+superx posts:list --type posts --sort likes --since "$SINCE" --limit 25
+superx scheduled:update <post-id> --at "<UTC ISO-8601 with Z>"
+```
+
+MCP: `get_queue_settings`, `get_scheduled_posts`, `get_post_analytics`, `update_scheduled_post`.
+
+`--at` alone never promotes a draft: add `--status scheduled` for that. The audit proposes moves and never deletes posts.
+
+### Queue Reshuffle
+
+Move and rewrite scheduled posts by asking, up to 500 in one transaction.
+
+```bash
+superx scheduled:list --status scheduled --limit 100
+superx scheduled:bulk-retime --moves-json '[{"id":"<post-id>","scheduled_for":"<UTC ISO-8601 with Z>"}]'
+superx scheduled:update <post-id> --text "<new wording>"
+```
+
+MCP: `get_scheduled_posts`, `bulk_retime_scheduled_posts`, `update_scheduled_post`.
+
+`bulk-retime` touches QUEUED posts only and answers with counts, so compare against `scheduled:list`. Replacing text without `--media` drops the post's images.
+
+## Replies
+
+Both reply playbooks stop at a draft by design. No endpoint, tool or command in SuperX posts a reply to X.
+
+### Reply Sprint
+
+The replies the account's posts got, each with a ready-to-post draft.
+
+```bash
+superx replies:received --sort recent --limit 5
+superx engage:reply-draft --text "<the reply's text>" --handle "<their handle, no @>" --thoughts "<what to convey>" --tone concise
+```
+
+MCP: `get_audience_replies`, `draft_reply`.
+
+Stops at reply TEXT. The person posts each reply. Typically 2 AI credits per draft (measured).
+
+### Reply to Any Post
+
+Any post's context, what its top replies already said, and one strong reply draft.
+
+```bash
+superx x:post <post-url-or-id>
+superx x:replies <post-url-or-id> --limit 20
+superx engage:reply-draft --post <post-id> --thoughts "<what to convey>" --tone engaging
+```
+
+MCP: `lookup_x_post`, `get_x_post_replies`, `draft_reply`.
+
+Stops at reply TEXT. `x:replies` is a sample of the best-liked direct replies, not every reply. The lookups draw on the shared 300-a-day live X allowance: `x:replies` spends 3 enrichment units and moves that daily counter once per page it fetches, up to 3. A draft named by `--post` spends one more lookup plus typically 2 AI credits (measured).
+
+## Leads
+
+### Who Is This Person?
+
+A fast read on a public account, plus the history the SuperX account already has with them.
+
+```bash
+superx x:user <handle>
+superx x:user-posts <handle> --no-reposts --limit 20
+superx contacts:get <x-user-id>
+superx contacts:replies <x-user-id> --sort recent --limit 5
+```
+
+MCP: `lookup_x_user`, `get_x_user_posts`, `get_contact`, `get_contact_history`.
+
+`contacts:get` covers known contacts only: engagers, contact-list members and scored leads. Public accounts only, on the shared 300-a-day live X allowance.
+
+### Your Warmest Leads
+
+The people already engaging most, ranked, with who to follow up with first.
+
+```bash
+superx contacts:list --sort engagement --limit 50
+superx contacts:replies <contact-id> --sort recent --limit 5
+```
+
+MCP: `get_top_contacts`, `get_contact_history`.
+
+Covers a rolling 90 days, up to 50 people. Reads only, no AI credits.
+
+### Instant Lead Hunt
+
+A live search of X now for people matching the audience described, scored, saving nothing.
+
+```bash
+superx signals:suggest-keywords --icp "<who you want to reach>"
+superx signals:search --keywords "<phrase>,<phrase>" --icp "<who you want to reach>" --max 30
+```
+
+MCP: `suggest_keywords`, `search_leads`.
+
+The search creates no agent and stores no leads, so keep what is needed from that one response. Costs at least 1 AI credit plus one of the plan's daily lead searches, and draws on a fair-use ceiling shared by every account. Takes about a minute.
+
+### Standing Lead Agent
+
+An agent that keeps finding leads while the person is away.
+
+```bash
+superx signals:expand-icp --text "<who you want to reach>"
+superx signals:suggest-keywords --icp "<the sharpened description>"
+superx signals:create-agent --name "<agent name>" --icp "<the sharpened description>" --keyword "<phrase>" --idempotency-key "agent-<slug>-1"
+superx signals:agents
+superx signals:leads --agent <agent-id> --deposited false --limit 25
+```
+
+MCP: `expand_icp`, `suggest_keywords`, `create_signal_agent`, `list_signal_agents`, `get_signal_leads`.
+
+Creation returns the agent, not leads: those arrive over the following minutes and days. Read `warnings` before saying what the agent watches. Omit `--list-id` and SuperX creates a `Leads: ...` contact list for it. Free to set up.
+
+### Lead Review
+
+The leads the agents found, prioritized, with the top few activity-checked.
+
+```bash
+superx signals:agents
+superx signals:leads --agent <agent-id> --deposited false --limit 25
+superx x:user-posts <lead-handle> --no-reposts --limit 10
+superx signals:feedback <lead-id> --fit
+```
+
+MCP: `list_signal_agents`, `get_signal_leads`, `get_x_user_posts`, `set_lead_feedback`.
+
+The feedback id is the numeric LEAD id, not an X user id, and it trains the scorer: ask for the verdict rather than inferring one. The activity check spends the shared 300-a-day live X allowance.
+
+## Audiences, research and DMs
+
+### Profile Research Briefs
+
+Structured briefs on a list of people, exportable as CSV.
+
+```bash
+superx datasets:research --handles "<handle>,<handle>" --max 25 --focus "<what to look for>" --title "<briefs title>" --wait
+superx datasets:rows <dataset-id> --limit 25
+superx datasets:export <dataset-id> --out briefs.csv
+```
+
+MCP: `research_profiles`, `get_dataset`, `get_dataset_rows`.
+
+Costs 1 AI credit per profile ACTUALLY researched (unresolved handles are refunded), max 25 a run, plus one of the plan's daily research runs. Over 5 profiles the run goes to the background, so pass `--wait` and never quote a count from a `collecting` result. CSV export is CLI only; XLSX stays in the SuperX app.
+
+### DM-Ready Audience Builder
+
+A clean, DM-able audience from any post or public X list, with a path into a contact list.
+
+```bash
+superx datasets:collect --source repliers --target <post-url> --require-can-dm --max-rows 500 --title "<audience title>" --wait
+superx datasets:get <dataset-id>
+superx lists:create --name "<list name>"
+superx datasets:add-to-list <dataset-id> --list-id <list-id>
+```
+
+MCP: `collect_audience`, `get_dataset`, `create_contact_list`, `add_dataset_to_contact_list`.
+
+`--source` also takes `quoters`, `reposters` and `list_members` (a public X list URL as `--target`). Adding to a list dedupes by person and skips rows with no usable X account id. Up to 1000 rows, one of 10 dataset operations a day, no AI credits.
+
+### Sentiment Slice
+
+Keep only the people who said the thing you are looking for.
+
+```bash
+superx datasets:list
+superx datasets:refine <dataset-id> --criterion "<what a matching row says>" --sort followers --limit 100 --wait
+superx datasets:rows <new-dataset-id> --limit 50
+```
+
+MCP: `list_datasets`, `refine_dataset`, `get_dataset_rows`.
+
+The source dataset is untouched, and only datasets whose rows carry text can be refined. Rows the classifier cannot judge are KEPT and counted as unclear, so report that count honestly. A refinement creates a dataset, so it spends one of the same 10 a day, plus a small AI cost.
+
+### Audience Export
+
+Everyone who engaged a post, as a spreadsheet, no filters.
+
+```bash
+superx datasets:collect --source repliers --target <post-url> --max-rows 1000 --title "<export title>" --wait
+superx datasets:get <dataset-id>
+superx datasets:export <dataset-id> --out audience.csv
+```
+
+MCP: `collect_audience`, `get_dataset`.
+
+CSV only: there is no export tool on MCP, and XLSX stays in the SuperX app, so send the person there when they need that format. Up to 1000 rows, one of 10 dataset operations a day, no AI credits.
+
+### My Content Export
+
+The account's own posts or replies, as a spreadsheet.
+
+```bash
+superx datasets:collect --source my_posts --since-days 90 --sort likes --max-rows 200 --wait
+superx datasets:get <dataset-id>
+superx datasets:export <dataset-id> --out my-content.csv
+```
+
+MCP: `collect_audience`, `get_dataset`.
+
+`--source my_replies` does the same for replies. CSV only, same as Audience Export. Small exports finish in the call; one of 10 dataset operations a day, no AI credits.
+
+### Warm Outreach Pipeline
+
+Research a list, get one personalized message per person, and queue them only after every message is approved.
+
+```bash
+HANDLES=$(superx contacts:list --sort engagement --limit 25 | jq -r '[.data[].username] | join(",")')
+superx datasets:research --handles "$HANDLES" --max 25 --focus "<what to look for>" --wait
+superx datasets:outreach-drafts <dataset-id> --format "<the template or an example message>"
+superx datasets:rows <dataset-id> --limit 25
+superx dm:limits
+superx dm:campaign --recipients recipients.json --idempotency-key "outreach-<slug>-1"
+superx dm:campaign-status <campaign-id>
+```
+
+MCP: `get_top_contacts`, `research_profiles`, `draft_outreach_dms`, `get_dataset_rows`, `get_dm_limits`, `queue_dm_campaign`, `get_dm_campaign`.
+
+The research step takes exactly one source: `--handles`, `--list`, `--agent` or `--dataset`. `contacts:list` returns people, not a list id, so its output feeds `--handles` through the `jq` above; `--list` takes a contact-list id from `lists:list` instead, which is the other way into this playbook. Both cap at 25 profiles. Build `recipients.json` from the dataset rows as `[{"x_user_id":"...","handle":"...","name":"...","message":"..."}]`, one entry per person, each carrying its own approved message. Ask for the `--format`; never invent one.
+
+The campaign is an ENQUEUE, not a send: the SuperX app delivers the messages later, within the account's daily and monthly DM limits, so report counts and never say anything was sent. `dm:campaign-status` and `dm:queue` show what actually went out, and `dm:cancel` cancels the unsent ones. 1 AI credit per profile researched, max 100 recipients per campaign, and the sender is responsible for these messages under X's rules on automation.
+
+### Reply-to-DM Campaign
+
+DM the people who replied to one of the account's posts.
+
+```bash
+superx datasets:collect --source repliers --target <post-url> --keywords "<optional filter>" --require-can-dm --max-rows 100 --wait
+superx datasets:refine <dataset-id> --criterion "<who to keep>" --wait
+superx datasets:rows <new-dataset-id> --limit 100
+superx dm:limits
+superx dm:campaign --recipients recipients.json --message "Hey [name], ..." --idempotency-key "campaign-<slug>-1"
+superx dm:campaign-status <campaign-id>
+```
+
+MCP: `collect_audience`, `refine_dataset`, `get_dataset_rows`, `get_dm_limits`, `queue_dm_campaign`, `get_dm_campaign`.
+
+Build `recipients.json` from `datasets:rows` in the same shape as Warm Outreach Pipeline, `[{"x_user_id":"...","handle":"...","name":"...","message":"..."}]`, except that here `--message` carries the shared wording and only `x_user_id` is required per row; a row's own `message` overrides the shared one. `[name]`, `[first]` and `[handle]` are filled per recipient. People messaged in the last 24 hours are skipped and counted in `duplicates`, and the account never messages itself.
+
+The same enqueue rule applies as in Warm Outreach Pipeline: nothing here delivers a message, the SuperX app does, and the response is counts. Max 100 per campaign, 10 dataset operations a day. Confirm the recipient list and the exact wording first.
+
+## Settings
+
+### Teach SuperX Your Rules
+
+Standing rules the AI follows on every drafting surface.
+
+```bash
+superx context:get
+superx context:set --rules "<the rule, in plain words>"
+superx context:get
+```
+
+MCP: `get_context`, `update_context`.
+
+Saving REPLACES the whole rule set, capped at 500 characters, so read the current rules first and send them back plus the new one. These settings steer all future AI output on the account: confirm the final wording before saving. Free.

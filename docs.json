@@ -30,7 +30,7 @@
           },
           {
             "group": "CLI & Agents",
-            "pages": ["cli", "mcp-server"]
+            "pages": ["cli", "mcp-server", "playbooks"]
           },
           {
             "group": "Updates",
