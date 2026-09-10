@@ -2518,6 +2518,106 @@ paths:
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
+  /v1/signals/leads/search:
+    post:
+      tags: [Signals]
+      operationId: searchLeads
+      summary: Search for leads on X now
+      description: |
+        One live keyword search over X, scored against an ideal-customer
+        profile, returned in the response.
+
+        **It creates nothing.** No signal agent, no saved leads, no contact
+        list membership: the leads exist only in this response. For an
+        audience that keeps filling up on its own, create a signal agent
+        (`POST /v1/signals/agents`) instead, and read what it finds with
+        `GET /v1/signals/leads`.
+
+        Keywords are plain language, not search operators: phrases the people
+        you want would actually post, comma-separated (or as a list) for
+        alternatives. `precision: high` keeps only confident matches;
+        `discovery` (the default) also returns adjacent ones.
+
+        The search takes up to a minute. Each lead comes from ONE matched
+        post, so treat `posts_count` as lifetime volume rather than proof of
+        current activity.
+
+        **Cost.** Reading X live costs AI credits, measured from what the
+        search actually spends: at least 1 credit for any search that reaches
+        X, typically 1-2. It also uses one of the plan's daily lead searches
+        (`429 ai_action_limited` with `scope: "account"`) and a slice of a
+        platform-wide fair-use ceiling on live-data actions (`scope:
+        "platform"`, shared with every account, so wait and retry rather than
+        assuming your own quota is gone). A search that never reaches X is
+        not charged.
+
+        Nothing is written by this endpoint, but it still needs a key with
+        the `write` scope, because it spends AI credits and live requests:
+        every non-GET `/v1` request needs that scope anyway. The MCP
+        `search_leads` tool needs the write scope for the same reason. On
+        both surfaces an account shared with you works, unlike the endpoints
+        that really write: nothing is written to the account, and the credits
+        come from the key owner's pool.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LeadSearchRequest" }
+            example:
+              keywords: "losing customers to churn, cancellations killing my MRR"
+              icp_description: "Founders of small B2B SaaS companies who are worried about retention and would try a churn-reduction tool."
+              precision: discovery
+              max_leads: 10
+      responses:
+        "200":
+          description: |
+            The search finished. `leads` is empty when nothing qualified,
+            with a `note` saying so.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/LeadSearchResult" }
+                  note:
+                    type: string
+              example:
+                data:
+                  query_used: "(\"losing customers to churn\" OR \"cancellations killing my MRR\") -filter:replies -filter:retweets"
+                  query_source: compiled
+                  precision: discovery
+                  requests_used: 5
+                  posts_scanned: 87
+                  candidates_scored: 30
+                  credits_charged: 1
+                  leads:
+                    - user:
+                        x_user_id: "1178367350552305665"
+                        username: "robj3d3"
+                        name: "Rob"
+                        avatar_url: "https://pbs.twimg.com/profile_images/abc_normal.jpg"
+                        followers_count: 8213
+                        posts_count: 4102
+                      icp_score: 4
+                      icp_rationale: "Runs a small B2B SaaS and is actively complaining about cancellations."
+                      provenance:
+                        action: authored
+                        tweet_text: "third cancellation this week and I still cannot tell why they left"
+                        target_handle: null
+                note: "Nothing was saved: this search creates no signal agent and stores no leads."
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
   /v1/signals/leads:
     get:
       tags: [Signals]
@@ -5710,6 +5810,19 @@ paths:
         into a stored dataset you can then read, export, or copy into a
         contact list.
 
+        `source: "research"` is the exception: instead of walking an audience
+        it reads people's recent posts and writes a short outreach brief for
+        each one (what they do, what they are building, recent topics,
+        personalization hooks that QUOTE their real posts, and an opener
+        angle). Give it exactly one source - `handles`, `list_id`, `agent_id`
+        or `dataset_id` - plus optional `focus`, `title` and `max_rows` (1-25,
+        default 10). The briefs land as an ordinary dataset, so
+        `GET /v1/datasets/{id}/rows`, `/export` and `/contacts` read them
+        unchanged. More than 5 profiles research in the background and answer
+        `202`. If none of them could be researched, the answer is `200` with
+        `data: null`, the reasons in `meta.skipped`, and every credit
+        returned.
+
         **This endpoint can answer before the work is finished.** A small
         collection runs inside the request and answers `200` with a `ready`
         dataset. A big one, **or one whose size cannot be established up
@@ -5734,6 +5847,20 @@ paths:
         pages the walk is expected to need, all charged before the walk
         starts so `X-RateLimit-Remaining` stays honest about work that
         outlives the response. Own-content collections spend nothing.
+
+        **Research is charged in AI credits, not collections.**
+        `source: "research"` costs a flat 1 credit per profile ACTUALLY
+        researched: profiles that could not be researched come back in
+        `meta.skipped` and their credits are returned. It spends one of the
+        plan's daily profile-research runs (`429 ai_action_limited` with
+        `scope: "account"`) and a slice of a platform-wide fair-use ceiling on
+        live-data actions shared by every SuperX account
+        (`429 ai_action_limited` with `scope: "platform"`), and it does NOT
+        count against the 10 collections a day. An empty credit pool is
+        `429 ai_credits_exhausted`. What was charged comes back in
+        `meta.credits_charged` and in the `X-Credits-*` headers on the `200`;
+        a background research run settles when it finishes, so its `202`
+        carries neither, and the figure lands on `GET /v1/me` and your ledger.
 
         Datasets created here appear alongside the ones Ask SuperX built, and
         are kept for 30 days.
@@ -5761,11 +5888,19 @@ paths:
         "200":
           description: |
             The collection finished inside the request. `data` is null when
-            nothing matched, with a `note` explaining why.
+            nothing matched, with a `note` explaining why. A research run
+            adds `meta` (what was requested, what was researched, what it
+            cost) and the `X-Credits-*` headers.
           headers:
             X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
             X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+            X-Credits-Charged:
+              description: Credits kept for this call. Research runs only.
+              schema:
+                type: integer
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
           content:
             application/json:
               schema:
@@ -5775,32 +5910,85 @@ paths:
                     allOf:
                       - $ref: "#/components/schemas/DatasetDetail"
                     nullable: true
+                  meta:
+                    type: object
+                    description: Research runs only. Absent on audience collections.
+                    properties:
+                      requested:
+                        type: integer
+                        description: Profiles the source resolved to.
+                      researched:
+                        type: integer
+                        description: Profiles a brief was actually written for.
+                      credits_charged:
+                        type: integer
+                        description: Credits kept, one per researched profile.
+                      skipped:
+                        type: array
+                        description: Profiles that produced no brief, with the reason.
+                        items:
+                          type: object
+                          properties:
+                            handle:
+                              type: string
+                              nullable: true
+                            reason:
+                              type: string
                   note:
                     type: string
                     description: Present when something needs saying, such as an empty result or ignored filters.
-              example:
-                data:
-                  id: "VKcPAVU1FSkx4kzPuehGK"
-                  title: "Repliers to my launch post"
-                  source: repliers
-                  status: ready
-                  target_ref: "1234567890123456789"
-                  x_account_id: "1178367350552305665"
-                  ask_chat_id: null
-                  columns: ["handle", "name", "bio", "website", "followers", "following", "location", "can_dm", "verified"]
-                  row_count: 64
-                  scanned_count: 71
-                  total_estimate: 71
-                  coverage_complete: true
-                  has_people: true
-                  created_at: "2026-09-10T10:12:00.000Z"
-                  expires_at: "2026-10-10T10:12:00.000Z"
-                  coverage: "Includes all 71 direct replies to the post."
-                  filters: { minFollowers: 500, requireCanDm: true }
+              examples:
+                collection:
+                  value:
+                    data:
+                      id: "VKcPAVU1FSkx4kzPuehGK"
+                      title: "Repliers to my launch post"
+                      source: repliers
+                      status: ready
+                      target_ref: "1234567890123456789"
+                      x_account_id: "1178367350552305665"
+                      ask_chat_id: null
+                      columns: ["handle", "name", "bio", "website", "followers", "following", "location", "can_dm", "verified"]
+                      row_count: 64
+                      scanned_count: 71
+                      total_estimate: 71
+                      coverage_complete: true
+                      has_people: true
+                      created_at: "2026-09-10T10:12:00.000Z"
+                      expires_at: "2026-10-10T10:12:00.000Z"
+                      coverage: "Includes all 71 direct replies to the post."
+                      filters: { minFollowers: 500, requireCanDm: true }
+                research:
+                  summary: source "research", 3 profiles, finished in the request
+                  value:
+                    data:
+                      id: "Rk2PAVU1FSkx4kzPuehGK"
+                      title: "Outreach briefs (3 profiles)"
+                      source: research
+                      status: ready
+                      target_ref: "handles"
+                      x_account_id: "1178367350552305665"
+                      ask_chat_id: null
+                      columns: ["handle", "name", "followers", "can_dm", "bio", "does", "building", "recent_topics", "hooks", "opener_angle"]
+                      row_count: 3
+                      scanned_count: 3
+                      total_estimate: 3
+                      coverage_complete: true
+                      has_people: true
+                      created_at: "2026-09-10T10:12:00.000Z"
+                      expires_at: "2026-10-10T10:12:00.000Z"
+                      coverage: "Researched all 3 requested profiles."
+                    meta:
+                      requested: 3
+                      researched: 3
+                      credits_charged: 3
+                    note: "Every hook quotes one of the person's real posts; proposed quotes that failed the verbatim check were dropped. Briefs are text for a person to act on: read the full rows with GET /v1/datasets/{id}/rows."
         "202":
           description: |
-            The collection started in the background. Poll
-            `GET /v1/datasets/{id}` until `status` is `ready`.
+            The collection, or the research run, started in the background.
+            Poll `GET /v1/datasets/{id}` until `status` is `ready`. Research
+            settles its credits when the run finishes, so no `X-Credits-*`
+            header is sent here and `meta` carries no charge.
           headers:
             X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
@@ -5811,6 +5999,24 @@ paths:
                 type: object
                 properties:
                   data: { $ref: "#/components/schemas/DatasetDetail" }
+                  meta:
+                    type: object
+                    description: Research runs only. Absent on audience collections.
+                    properties:
+                      requested:
+                        type: integer
+                        description: Profiles the source resolved to.
+                      skipped:
+                        type: array
+                        description: Profiles rejected before the run started, with the reason.
+                        items:
+                          type: object
+                          properties:
+                            handle:
+                              type: string
+                              nullable: true
+                            reason:
+                              type: string
                   note:
                     type: string
               example:
@@ -5840,17 +6046,54 @@ paths:
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/WriteForbidden" }
-        "404": { $ref: "#/components/responses/AccountNotFound" }
-        "409":
+        "404":
           description: |
-            Either another background collection is still running for this
-            account (`collection_in_progress`), or the `Idempotency-Key` was
-            reused with a different request body (`idempotency_key_reuse`).
-            Neither started anything.
+            `account_not_found` when `account_id` is not one of your accounts.
+            On `source: "research"` the source id is named too:
+            `list_not_found`, `agent_not_found`, or `not_found` for a dataset
+            id that is unknown or expired.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
               examples:
+                account_not_found:
+                  value:
+                    error:
+                      code: account_not_found
+                      message: "No account with that id belongs to this key"
+                list_not_found:
+                  value:
+                    error:
+                      code: list_not_found
+                      message: "No contact list with that id belongs to this account."
+                agent_not_found:
+                  value:
+                    error:
+                      code: agent_not_found
+                      message: "No signal agent with that id belongs to this account."
+                not_found:
+                  value:
+                    error:
+                      code: not_found
+                      message: "No dataset with that id. Use the dataset_id from a collect_audience or refine_dataset result."
+        "409":
+          description: |
+            Another background collection is still running for this account
+            (`collection_in_progress`), the `Idempotency-Key` was reused with a
+            different request body (`idempotency_key_reuse`), or the dataset a
+            research run was pointed at is not ready yet
+            (`dataset_not_ready`, carrying `dataset_status`). None of them
+            started anything.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              examples:
+                dataset_not_ready:
+                  value:
+                    error:
+                      code: dataset_not_ready
+                      message: "The source dataset is not ready yet. Poll GET /v1/datasets/{id} until status is ready, then research it."
+                      dataset_status: collecting
                 collection_in_progress:
                   value:
                     error:
@@ -5863,19 +6106,38 @@ paths:
                       message: "This Idempotency-Key was already used with a different request body."
         "429":
           description: |
-            Either today's 10 collections are used up
-            (`collection_quota_exceeded`, shared with Ask SuperX in the app),
-            or the enrichment allowance the walk needs is exhausted
-            (`rate_limited`). Read `error.code` to tell them apart; both carry
-            `Retry-After`.
+            Read `error.code`. A collection is refused when today's 10
+            collections are used up (`collection_quota_exceeded`, shared with
+            Ask SuperX in the app) or the enrichment allowance the walk needs
+            is exhausted (`rate_limited`). A research run is refused when the
+            plan's daily research runs are used up (`ai_action_limited` with
+            `scope: "account"`), when the platform-wide fair-use ceiling on
+            live-data actions is reached (`ai_action_limited` with
+            `scope: "platform"`, shared by every account and not about your
+            own quota), or when the AI credit pool is empty
+            (`ai_credits_exhausted`). Every flavour carries `Retry-After`, and
+            the two `ai_action_limited` ones carry `reset_at` (unix seconds)
+            as well. Nothing was started or charged.
           headers:
             Retry-After:
               description: Seconds to wait before retrying.
               schema:
                 type: integer
+            X-Credits-Remaining:
+              description: Credits left in the pool. Sent only on `ai_credits_exhausted`.
+              schema:
+                type: integer
+            X-Credits-Reset:
+              description: Unix seconds when the pool refills. Sent only on `ai_credits_exhausted`.
+              schema:
+                type: integer
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+                  - $ref: "#/components/schemas/ActionLimitedError"
+                  - $ref: "#/components/schemas/CreditExhaustedError"
               examples:
                 collection_quota_exceeded:
                   value:
@@ -5891,6 +6153,33 @@ paths:
                       code: rate_limited
                       message: "Rate limit exceeded for the Pro plan (5 enrichment requests/min). This collection needs 4 lookups."
                       retry_after: 42
+                ai_action_limited_account:
+                  summary: source "research", the plan's daily research runs are used up
+                  value:
+                    error:
+                      code: ai_action_limited
+                      message: "Daily limit reached for this action on your plan (10 profile research runs per day). It resets at midnight UTC."
+                      scope: account
+                      retry_after: 20400
+                      reset_at: 1789430400
+                ai_action_limited_platform:
+                  summary: source "research", the shared fair-use ceiling is reached
+                  value:
+                    error:
+                      code: ai_action_limited
+                      message: "The platform-wide fair-use ceiling for live-data actions has been reached for today. It resets at midnight UTC."
+                      scope: platform
+                      retry_after: 20400
+                      reset_at: 1789430400
+                ai_credits_exhausted:
+                  summary: source "research", not enough credits for the batch
+                  value:
+                    error:
+                      code: ai_credits_exhausted
+                      message: "Not enough AI credits. Resets in 5 hours."
+                      credits_required: 10
+                      credits_remaining: 4
+                      reset_at: 1790812800
         "500": { $ref: "#/components/responses/InternalError" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
@@ -6160,6 +6449,247 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/datasets/{id}/outreach-drafts:
+    post:
+      tags: [Datasets]
+      operationId: draftDatasetOutreach
+      summary: Draft outreach messages onto a research dataset
+      description: |
+        Writes one personalized message per person in a research dataset,
+        following the `format` you supply.
+
+        **The drafts are text and nothing is sent.** Each message is stored on
+        the dataset's `message` column and read back with
+        `GET /v1/datasets/{id}/rows`. No endpoint in this API sends a DM, and
+        this one does not either: a person reviews the messages and sends them
+        from the SuperX app.
+
+        Personalization comes only from that person's stored brief and its
+        verbatim hook quotes, never invented details. A brief with no usable
+        hook gets an honest generic message that still follows your format,
+        counted separately in `generic`. `[name]`, `[first]` and `[handle]`
+        tokens are left intact for per-recipient fill-in at send time.
+
+        A message that mentions a DIFFERENT recipient's handle is discarded
+        rather than stored (counted in `contaminated`); run the endpoint again
+        to retry those rows. Re-running overwrites every draft on the dataset.
+
+        The dataset must have been created with `source: "research"` and be
+        `ready`. Costs AI credits (measured, usually a few) and spends no
+        live-data allowance: the briefs are already stored. Needs a key with
+        the `write` scope.
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DraftOutreachRequest" }
+            example:
+              format: "hey [first]! been following what you're building. <personalization>. would love to trade notes sometime"
+              instructions: "Keep it under three sentences and never pitch."
+      responses:
+        "200":
+          description: The messages were drafted and saved onto the dataset.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/OutreachDraftsResult" }
+                  meta:
+                    type: object
+                    properties:
+                      credits_charged:
+                        type: integer
+                  note:
+                    type: string
+              example:
+                data:
+                  dataset_id: "VKcPAVU1FSkx4kzPuehGK"
+                  title: "Outreach briefs (10 profiles)"
+                  total: 10
+                  drafted: 8
+                  generic: 1
+                  failed: 0
+                  contaminated: 1
+                  long_messages: 0
+                  sample_messages:
+                    - handle: "@robj3d3"
+                      message: "hey [first]! been following what you're building..."
+                meta:
+                  credits_charged: 2
+                note: "Drafts are text only and are stored on the dataset's `message` column; a person sends them from the SuperX app. The API never sends DMs."
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/DatasetNotFound" }
+        "409": { $ref: "#/components/responses/DatasetNotReady" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/datasets/{id}/refine:
+    post:
+      tags: [Datasets]
+      operationId: refineDataset
+      summary: Refine a dataset by what each person wrote
+      description: |
+        Judges each row's own text against a natural-language `criterion` and
+        keeps or drops it, then optionally sorts and caps what is left into a
+        NEW dataset. The source dataset is never modified.
+
+        Only datasets whose rows carry text can be refined this way (a
+        repliers or quoters collection). Anything else answers `400`: use the
+        profile filters on `POST /v1/datasets` instead.
+
+        Rows the classifier cannot judge confidently are **kept** and counted
+        as `unclear`, never silently dropped. Classification is best-effort:
+        read the kept rows before acting on them.
+
+        **This endpoint can answer before the work is finished.** Up to 100
+        rows with text classify inside the request and answer `200`; more than
+        that answers `202` with a `collecting` dataset to poll through
+        `GET /v1/datasets/{id}`. If nothing was kept, the answer is `200` with
+        `data: null` and a `note`.
+
+        **Cost.** A refinement creates a dataset, so it counts against the
+        same 10 collections a day this account shares with Ask SuperX
+        (`429 collection_quota_exceeded`), and it costs AI credits, measured
+        from the classifier's real cost. It spends no live-data allowance.
+        Needs a key with the `write` scope.
+      parameters:
+        - $ref: "#/components/parameters/DatasetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefineDatasetRequest" }
+            example:
+              criterion: "supportive or neutral; not mean, sarcastic, or hostile"
+              keep_matching: true
+              sort_by: followers
+              limit: 200
+      responses:
+        "200":
+          description: |
+            The refinement finished inside the request. `data` is null when
+            nothing was kept, with a `note` explaining why.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/DatasetDetail"
+                    nullable: true
+                  meta: { $ref: "#/components/schemas/RefineMeta" }
+                  note:
+                    type: string
+              example:
+                data:
+                  id: "Jc9PxVU1FSkx4kzPuehGK"
+                  title: "Refined: Repliers to my launch post"
+                  source: repliers
+                  status: ready
+                  target_ref: "1234567890123456789"
+                  x_account_id: "1178367350552305665"
+                  ask_chat_id: null
+                  columns: ["handle", "name", "bio", "text", "followers", "can_dm"]
+                  row_count: 48
+                  scanned_count: 64
+                  total_estimate: 64
+                  coverage_complete: true
+                  has_people: true
+                  created_at: "2026-09-10T10:20:00.000Z"
+                  expires_at: "2026-10-10T10:20:00.000Z"
+                meta:
+                  source_dataset_id: "VKcPAVU1FSkx4kzPuehGK"
+                  kept: 48
+                  dropped: 14
+                  unclear: 2
+                  limited: 0
+                  self_excluded: 0
+                  credits_charged: 2
+        "202":
+          description: |
+            The refinement started in the background. Poll
+            `GET /v1/datasets/{id}` until `status` is `ready`. Credits are
+            settled when it finishes, so no credit headers are sent here.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/DatasetDetail" }
+                  meta: { $ref: "#/components/schemas/RefineMeta" }
+                  note:
+                    type: string
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/DatasetNotFound" }
+        "409":
+          description: |
+            The dataset is not ready yet (`dataset_not_ready`), or another
+            background collection or refinement is still running for this
+            account (`collection_in_progress`). Neither started anything, and
+            `collection_in_progress` does not use up one of the day's 10.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              examples:
+                dataset_not_ready:
+                  value:
+                    error:
+                      code: dataset_not_ready
+                      message: "This dataset is not ready yet. Poll GET /v1/datasets/{id} until status is ready."
+                      dataset_status: collecting
+                collection_in_progress:
+                  value:
+                    error:
+                      code: collection_in_progress
+                      message: "Another collection or refinement is still running for this account. Poll it with GET /v1/datasets/{id} and start this one when it finishes."
+        "429":
+          description: |
+            Today's 10 dataset collections are used up
+            (`collection_quota_exceeded`, shared with Ask SuperX in the app),
+            the AI credit pool is spent (`ai_credits_exhausted`), or a plan
+            cap on refinements was hit (`ai_action_limited`). Read
+            `error.code`; all carry `Retry-After`.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: "#/components/schemas/CreditExhaustedError"
+                  - $ref: "#/components/schemas/ActionLimitedError"
+                  - $ref: "#/components/schemas/ErrorEnvelope"
+              example:
+                error:
+                  code: collection_quota_exceeded
+                  message: "You have used today's dataset collections. Existing datasets still read and export; the limit resets at midnight UTC."
+                  retry_after: 20400
+                  limit: 10
+                  reset_at: 1789430400
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
   /v1/x/posts/{id}:
     get:
@@ -6690,12 +7220,17 @@ components:
       type: object
       required: [error]
       description: |
-        The `429 ai_action_limited` body: a per-day cap on how many times one
-        expensive action can run on your plan, counted separately from the
-        credit pool and from the request rate limits. Sent with a
-        `Retry-After` header. The cap resets at midnight UTC. No plan
-        currently caps post drafts, so this is a shape to code against rather
-        than one you will meet today.
+        The `429 ai_action_limited` body: a per-day cap on how many times an
+        expensive action can run, counted separately from the credit pool and
+        from the request rate limits. Sent with a `Retry-After` header. Caps
+        reset at midnight UTC.
+
+        Read `scope` before telling a user anything: `account` means the
+        plan's own daily cap for that action, `platform` means the
+        platform-wide fair-use ceiling on live-data actions, which is shared
+        with every SuperX account. A `platform` refusal is not about this
+        account's quota, so wait and retry rather than reporting the account
+        as out.
       properties:
         error:
           type: object
@@ -6706,9 +7241,19 @@ components:
               enum: [ai_action_limited]
             message:
               type: string
+            scope:
+              type: string
+              enum: [account, platform]
+              description: |
+                Whose ceiling refused the call: this account's own per-day cap
+                for the action, or the platform-wide fair-use ceiling on
+                live-data actions.
             retry_after:
               type: integer
               description: Seconds to wait before the cap resets.
+            reset_at:
+              type: integer
+              description: Unix seconds when the cap resets (the next UTC midnight).
 
     LegacyErrorEnvelope:
       type: object
@@ -7749,12 +8294,18 @@ components:
       properties:
         source:
           type: string
-          enum: [repliers, quoters, reposters, list_members, my_replies, my_posts]
+          enum: [repliers, quoters, reposters, list_members, my_replies, my_posts, research]
           description: |
             Who to collect. repliers, quoters and reposters need a post
             target; list_members needs a public X list; my_posts and
             my_replies read the account's own synced posts and take no
-            target. Research briefs are built in the app only.
+            target.
+
+            `research` is different: it reads people's recent posts and writes
+            an outreach brief per person instead of walking an audience. It
+            takes exactly ONE of `handles`, `list_id`, `agent_id` or
+            `dataset_id`, plus `focus` and a `max_rows` of 1-25 (default 10),
+            and ignores `target` and `filters`.
         target:
           type: string
           description: |
@@ -7770,9 +8321,32 @@ components:
           minimum: 1
           maximum: 1000
           default: 500
+          description: |
+            Rows to collect at most. For `source: "research"` the range is
+            1-25 and the default is 10 (one profile per row).
         account_id:
           type: string
           description: Which of your accounts to collect as. Omit for the main account.
+        handles:
+          type: array
+          maxItems: 25
+          items:
+            type: string
+          description: "`research` only: research these X handles (with or without the @). Exactly one source field."
+        list_id:
+          type: string
+          description: "`research` only: research the members of this contact list. Exactly one source field."
+        agent_id:
+          type: integer
+          minimum: 1
+          description: "`research` only: research this signal agent's leads. Exactly one source field."
+        dataset_id:
+          type: string
+          description: "`research` only: research the people in this dataset. Exactly one source field."
+        focus:
+          type: string
+          maxLength: 300
+          description: "`research` only: an optional steer, e.g. \"founders who might need audience-growth tooling\"."
         filters:
           type: object
           properties:
@@ -7807,6 +8381,230 @@ components:
               type: string
               enum: [recent, likes, impressions]
               description: "Own content only: which posts to keep when max_rows cuts the list."
+
+    LeadSearchRequest:
+      type: object
+      required: [keywords, icp_description]
+      properties:
+        keywords:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+          description: |
+            Plain-language phrases these people would post, as one
+            comma-separated string or a list of strings (a list is joined with
+            commas). 3-300 characters in total. No search operators.
+        icp_description:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: |
+            Who counts as a good lead, in one or two sentences: role, domain,
+            and the buying intent or pain that qualifies them.
+        precision:
+          type: string
+          enum: [high, discovery]
+          default: discovery
+          description: high keeps only confident matches; discovery also returns adjacent ones.
+        max_leads:
+          type: integer
+          minimum: 1
+          maximum: 30
+          default: 10
+        account_id:
+          type: string
+          description: Which of your accounts to search as. Omit for the main account.
+
+    LeadSearchLead:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            x_user_id:
+              type: string
+              description: The X account id, as a string (X ids exceed 2^53).
+            username:
+              type: string
+              nullable: true
+              description: X handle without the @.
+            name:
+              type: string
+              nullable: true
+            avatar_url:
+              type: string
+              nullable: true
+            followers_count:
+              type: integer
+              nullable: true
+            posts_count:
+              type: integer
+              nullable: true
+              description: Lifetime posts, not recent activity.
+        icp_score:
+          type: integer
+          nullable: true
+          description: How well this person matches the profile, 2-5 (anything lower is dropped).
+        icp_rationale:
+          type: string
+          nullable: true
+        provenance:
+          type: object
+          description: How the person was found. Mirrors the provenance on stored signal leads.
+          properties:
+            action:
+              type: string
+              description: Always "authored" here, meaning they wrote a matching post.
+            tweet_text:
+              type: string
+              nullable: true
+              description: The matched post, shortened.
+            target_handle:
+              type: string
+              nullable: true
+
+    LeadSearchResult:
+      type: object
+      properties:
+        query_used:
+          type: string
+          description: The search actually run against X.
+        query_source:
+          type: string
+          enum: [compiled, keywords]
+          description: compiled = your phrases were turned into a query by a model; keywords = the deterministic fallback.
+        precision:
+          type: string
+          enum: [high, discovery]
+        requests_used:
+          type: integer
+          description: Live requests this search spent.
+        posts_scanned:
+          type: integer
+        candidates_scored:
+          type: integer
+        credits_charged:
+          type: integer
+        leads:
+          type: array
+          items: { $ref: "#/components/schemas/LeadSearchLead" }
+
+    DraftOutreachRequest:
+      type: object
+      required: [format]
+      properties:
+        format:
+          type: string
+          minLength: 10
+          maxLength: 1000
+          description: |
+            The template or example message every draft should follow. Keep
+            `[name]`, `[first]` and `[handle]` tokens if you want them filled
+            in per recipient at send time.
+        instructions:
+          type: string
+          maxLength: 500
+          description: "Optional extra steer: tone, what to emphasize, what to avoid."
+        account_id:
+          type: string
+          description: Which of your accounts to draft as. Omit for the main account.
+
+    OutreachDraftsResult:
+      type: object
+      properties:
+        dataset_id:
+          type: string
+        title:
+          type: string
+        total:
+          type: integer
+          description: Rows in the dataset.
+        drafted:
+          type: integer
+          description: Messages personalized from real hook quotes.
+        generic:
+          type: integer
+          description: Messages that follow the format with no personal claims, because the brief had no usable hook.
+        failed:
+          type: integer
+          description: Rows the model could not draft for. Their previous message, if any, was cleared.
+        contaminated:
+          type: integer
+          description: Drafts discarded because they named a different recipient. Run again to retry those rows.
+        long_messages:
+          type: integer
+          description: Drafts over 500 characters. Worth tightening before anyone sends them.
+        sample_messages:
+          type: array
+          description: A few drafts, shortened. Read them all with GET /v1/datasets/{id}/rows.
+          items:
+            type: object
+            properties:
+              handle:
+                type: string
+                nullable: true
+              message:
+                type: string
+
+    RefineDatasetRequest:
+      type: object
+      required: [criterion]
+      properties:
+        criterion:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: |
+            What the rows to match look like, judged on each row's own text,
+            e.g. "supportive or neutral; not mean, sarcastic, or hostile".
+        keep_matching:
+          type: boolean
+          default: true
+          description: true keeps the rows that MATCH the criterion; false keeps the rows that do NOT.
+        sort_by:
+          type: string
+          enum: [followers, likes, none]
+          default: none
+          description: Sort the kept rows descending before the limit is applied.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: Keep at most this many rows after filtering and sorting.
+        title:
+          type: string
+          maxLength: 120
+          description: Title for the new dataset. A sensible one is generated when omitted.
+        account_id:
+          type: string
+          description: Which of your accounts to refine as. Omit for the main account.
+
+    RefineMeta:
+      type: object
+      description: Counts for the refinement. On a 202 only the source id and row count are known.
+      properties:
+        source_dataset_id:
+          type: string
+        rows_with_text:
+          type: integer
+          description: Rows that will be judged (202 only).
+        kept:
+          type: integer
+        dropped:
+          type: integer
+        unclear:
+          type: integer
+          description: Rows the classifier could not judge. They were KEPT.
+        limited:
+          type: integer
+          description: Kept rows cut by `limit`.
+        self_excluded:
+          type: integer
+          description: Rows of your own account, always removed.
+        credits_charged:
+          type: integer
 
     DatasetRow:
       type: object
@@ -9042,6 +9840,63 @@ components:
             error:
               code: profile_not_synced
               message: "This account's X profile has not synced yet. Open it in the SuperX app once, then retry."
+
+    AiActionLimited:
+      description: |
+        Rate limited (`rate_limited`, honor `Retry-After`), the AI credit pool
+        is used up (`ai_credits_exhausted`, with the credit counters), or a
+        daily cap on the action was hit (`ai_action_limited`).
+
+        On `ai_action_limited`, `error.scope` says which ceiling: `account`
+        is the plan's own daily cap for this action, `platform` is the
+        platform-wide fair-use ceiling on live-data actions, shared with every
+        SuperX account. A `platform` refusal is not about this account's
+        quota; wait for `reset_at` and retry.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying. Sent on every flavour of this 429.
+          schema:
+            type: integer
+        X-Credits-Remaining:
+          description: Credits left in the pool. Sent only on `ai_credits_exhausted`.
+          schema:
+            type: integer
+        X-Credits-Reset:
+          description: Unix seconds when the pool refills. Sent only on `ai_credits_exhausted`.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: "#/components/schemas/CreditExhaustedError"
+              - $ref: "#/components/schemas/ActionLimitedError"
+              - $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            ai_action_limited_account:
+              value:
+                error:
+                  code: ai_action_limited
+                  message: "Daily limit reached for this action on your plan (10 lead searches per day). It resets at midnight UTC."
+                  scope: account
+                  retry_after: 20400
+                  reset_at: 1789430400
+            ai_action_limited_platform:
+              value:
+                error:
+                  code: ai_action_limited
+                  message: "The platform-wide fair-use ceiling for live-data actions has been reached for today. It resets at midnight UTC."
+                  scope: platform
+                  retry_after: 20400
+                  reset_at: 1789430400
+            ai_credits_exhausted:
+              value:
+                error:
+                  code: ai_credits_exhausted
+                  message: "Not enough AI credits. Resets in 5 hours."
+                  credits_required: 2
+                  credits_remaining: 0
+                  reset_at: 1790812800
 
     CollectionInProgress:
       description: |

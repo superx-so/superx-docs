@@ -3,6 +3,27 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-10: Lead search, profile research and outreach drafts
+
+The AI actions that were only reachable inside the SuperX app are now on the API, MCP and the CLI. None of them sends anything to X.
+
+**API**
+
+- `POST /v1/signals/leads/search` runs ONE live keyword search over X and returns the people it finds, scored against an ideal-customer profile you describe. It creates nothing: no signal agent, no stored leads, no list membership, so keep what you need from the response. For an audience that keeps filling up on its own, create a signal agent instead. It takes up to a minute, and needs a key with the `write` scope, on REST and on MCP alike, because it spends AI credits and live requests even though it writes nothing
+- `POST /v1/datasets` accepts `source: "research"`: give it `handles`, a `list_id`, an `agent_id` or a `dataset_id` and it reads those people's recent posts and writes a short outreach brief for each - what they do, what they are building, recent topics, personalization hooks that QUOTE their real posts, and an opener angle. The briefs land as a normal dataset, so `GET /v1/datasets/{id}/rows`, `/export` and `/contacts` read them unchanged. More than 5 profiles run in the background and answer `202`
+- `POST /v1/datasets/{id}/outreach-drafts` writes one personalized message per person in a research dataset, following the `format` you supply. **The drafts are text and nothing is sent.** They are stored on the dataset's `message` column and read back with `GET /v1/datasets/{id}/rows`; no endpoint in this API sends a DM, and a person sends them from the SuperX app after reviewing each one. `[name]`, `[first]` and `[handle]` tokens are kept for per-recipient fill-in at send time
+- `POST /v1/datasets/{id}/refine` filters a dataset by what each person WROTE against a natural-language criterion, into a NEW dataset; the source is untouched. Rows the classifier cannot judge are KEPT and counted as `unclear`. Only datasets whose rows carry text (repliers, quoters) can be refined this way. Over 100 rows with text it answers `202`
+- Costs: lead search is measured (at least 1 credit for a search that reaches X), research is a flat 1 credit per profile actually researched with the rest returned, and drafting and refining are measured. Lead search and research also use one of the plan's daily `lead_search` / `research_profiles` runs; refining counts against the same 10 dataset collections a day a collection does
+- `429 ai_action_limited` now carries `scope` and `reset_at`. `scope: "account"` is your plan's own daily cap for the action. `scope: "platform"` is a new platform-wide fair-use ceiling on the actions that read X live, shared by every SuperX account: your own allowance is untouched, so wait for `reset_at` and retry rather than treating it as your quota
+
+**MCP**
+
+- Four new tools: `search_leads`, `research_profiles`, `draft_outreach_dms` and `refine_dataset`. All four need a key with the write scope, because all four spend AI credits. 83 tools in total
+
+**CLI**
+
+- `superx signals:search`, `superx datasets:research` (`--wait`), `superx datasets:outreach-drafts` and `superx datasets:refine` (`--wait`)
+
 ## 2026-09-10: Audience lists, live mentions and audience collection
 
 The people around an account are now readable end to end, and collections can be started through the API:
