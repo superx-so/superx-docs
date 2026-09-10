@@ -3,6 +3,31 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-10: Reply drafts, remix and the composer tools
+
+The writing helpers from the SuperX app composer are now on the API, MCP and the CLI. Every one of them returns TEXT and writes nothing: nothing here is posted, scheduled or sent.
+
+**API**
+
+- `POST /v1/engage/reply-draft` writes ONE reply draft in the account's own voice, using the same engine, prompts and voice settings as the Generate Reply button in the app. Name the post with `post_id` (the API reads it live, so the draft sees the real text, author and quoted post) or supply the wording yourself in `post`. Add `conversation` (oldest first), `quoted_post`, `thoughts` for what the person wants to convey, and `tone`. **The draft is text. A person posts it**: no endpoint in this API posts a reply, and this one does not either
+- `POST /v1/posts/remix` rewrites a post in the account's voice, from a loose reinterpretation (`closeness: 0`) to very close to the original wording (`closeness: 100`), with optional `instructions`. Send the result on to `POST /v1/posts/draft` or `POST /v1/scheduled-posts` when a person is happy with it
+- `POST /v1/tools/inline-edit` edits one selected piece of a post while keeping the style of the text around it (`text` plus `full_text`, steered by a free-text `instruction`, a preset `edit_type`, or both)
+- `POST /v1/tools/rephrase` applies one preset rewrite to a whole post. The style presets write in the account's voice; `grammar`, `translate`, `clarity`, `details` and `concise` stay mechanical
+- `POST /v1/tools/factcheck` checks a statement against a web search and reports `true`, `false` or `unknown` with a one-sentence comment and the sources it read. It is a model's reading of a couple of search results, not a guarantee: show the sources and never present the verdict as settled
+- `POST /v1/tools/algorithm-predict` scores two versions of a post from 0 to 100 against what the timeline tends to reward, with a few short improvements for each. The scores compare the two drafts against each other; they do not predict reach
+- Costs: all six are measured AI credits, typically 1, and 2 for a remix or a reply draft (the reply write plus the shared post-editor pass). None of them spends a live X request except a reply draft with a `post_id`, which uses one lookup from the same 300-a-day allowance the live X lookups draw on. All six need a key with the `write` scope, and all six work on an account shared with you, because they change nothing on it
+- `POST /v1/articles/{id}/cover` now charges a FLAT 25 AI credits per generation, whatever the render actually costs, and reports it in `meta.credits_charged` and a new `X-Credits-Charged` header. The account's daily and monthly cover caps are unchanged. A generation that fails outright is refunded in full; a `504` keeps the charge because the cover may still have landed, so read the article before retrying
+- New error code `post_has_no_text` (422) on `POST /v1/engage/reply-draft`, when the post you named carries no text to reply to
+
+**MCP**
+
+- Six new tools: `draft_reply`, `remix_post`, `inline_edit`, `rephrase_text`, `fact_check` and `predict_algorithm`. All six need a key with the write scope, because all six spend AI credits. 89 tools in total
+- `generate_article_cover` now reports `credits_charged`
+
+**CLI**
+
+- `superx engage:reply-draft`, `superx posts:remix`, `superx tools:inline-edit`, `superx tools:rephrase`, `superx tools:factcheck` and `superx tools:predict`
+
 ## 2026-09-10: Lead search, profile research and outreach drafts
 
 The AI actions that were only reachable inside the SuperX app are now on the API, MCP and the CLI. None of them sends anything to X.

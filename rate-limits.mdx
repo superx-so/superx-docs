@@ -69,13 +69,18 @@ Typical costs today:
 | Call | Credits |
 | --- | --- |
 | `POST /v1/posts/draft` | Flat 3 per draft (a 3-draft call charges 9) |
-| `POST /v1/articles/{id}/cover` | About 25 per generation, settled to what the render actually cost |
+| `POST /v1/articles/{id}/cover` | Flat 25 per generation, whatever the render actually cost |
 | `POST /v1/signals/leads/search` | Measured, at least 1 for any search that reaches X. Usually 1-2 |
 | `POST /v1/datasets` with `source: "research"` | Flat 1 per profile actually researched. Profiles that could not be researched are returned |
 | `POST /v1/datasets/{id}/outreach-drafts` | Measured, usually 1-3 for a 25-row dataset |
 | `POST /v1/datasets/{id}/refine` | Measured, roughly 1 per 40 rows with text |
+| `POST /v1/engage/reply-draft` | Measured, typically 2 (the reply write plus the shared post-editor pass). With a `post_id` it also spends one live X lookup |
+| `POST /v1/posts/remix` | Measured, typically 2 |
+| `POST /v1/tools/inline-edit`, `/rephrase`, `/factcheck`, `/algorithm-predict` | Measured, typically 1 each |
 
 Drafts that fail to generate are refunded, and a call where every draft failed returns `502 generation_failed` with nothing charged. A lead search that never reaches X is not charged either.
+
+A cover generation that fails outright is refunded in full. A cover that TIMES OUT (`504`) keeps its 25 credits: the render may well have completed and landed in the article's cover history, so read the article before retrying. The reply draft and the four composer tools refund in full when the model call fails before it produces anything.
 
 Research is settled when the run finishes, which for a background run (more than 5 profiles) is after the `202`: the response body cannot report a final figure, so read the pool with `GET /v1/me` afterwards. The same is true of a background refinement.
 
@@ -85,7 +90,7 @@ Responses from a credit-charging endpoint carry:
 
 | Header | Meaning |
 | --- | --- |
-| `X-Credits-Charged` | Credits kept for this call. Present where the endpoint knows the final number (post drafts); cover generation settles to its measured cost after answering, so it reports the other two only |
+| `X-Credits-Charged` | Credits kept for this call. Present on every endpoint that settles before answering, which is all of them except the ones that answer `202` and finish in the background |
 | `X-Credits-Remaining` | Credits left in the pool, bonus credits included |
 | `X-Credits-Reset` | Unix timestamp (seconds) when the pool refills |
 
@@ -117,8 +122,12 @@ Some AI actions also carry a per-day count cap per plan, so an unusually cheap r
 | `research_profiles` | `POST /v1/datasets` with `source: "research"` | 10 | 50 | 100 | 250 |
 | `draft_outreach_dms` | `POST /v1/datasets/{id}/outreach-drafts` | no cap | no cap | no cap | no cap |
 | `refine_dataset` | `POST /v1/datasets/{id}/refine` | no cap | no cap | no cap | no cap |
+| `article_cover` | `POST /v1/articles/{id}/cover` | no cap | no cap | no cap | no cap |
+| `reply_draft` | `POST /v1/engage/reply-draft` | no cap | no cap | no cap | no cap |
+| `remix` | `POST /v1/posts/remix` | no cap | no cap | no cap | no cap |
+| `inline_edit`, `rephrase`, `factcheck`, `algorithm_predict` | `POST /v1/tools/*` | no cap | no cap | no cap | no cap |
 
-The two uncapped actions read no live data, so credits (and, for refine, the 10-collections-a-day allowance) are what bound them.
+The uncapped actions read no live data, so credits are what bound them (plus, for refine, the 10-collections-a-day allowance, and for cover generation, the account's own daily and monthly cover caps).
 
 Credit and action limits fail closed: when SuperX cannot verify your balance or your day count, the call is refused rather than run for free.
 
@@ -145,6 +154,8 @@ Always read `scope` before telling a user anything: on `platform` their own allo
 ## Live X lookups
 
 The `/v1/x/*` endpoints read X live rather than SuperX's stored data, so they carry a second limit on top of the enrichment bucket above: an allowance of **300 live lookups per account per UTC day**, SHARED with Ask SuperX inside the SuperX app. Heavy API use eats into what Ask can look up that day, and the other way around. Over the allowance returns `429 lookup_quota_exceeded`:
+
+`POST /v1/engage/reply-draft` with a `post_id` reads the post live, so it spends one lookup from the same 300 a day. Pass `post` with the wording instead and it spends none.
 
 Profile research (`POST /v1/datasets` with `source: "research"`) reads X live too, so it draws on the SAME 300 a day: one or two lookups per profile it researches. It does not answer `429` when the allowance runs out mid-run, though. The profiles it could not read come back in `meta.skipped` with a reason, only the profiles it did research are charged, and a run where nothing could be read answers `200` with `data: null` and every credit returned.
 

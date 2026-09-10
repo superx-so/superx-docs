@@ -64,6 +64,17 @@ tags:
       lookups with Ask SuperX inside the app, so use them for what you
       actually need rather than to sweep. Repeat lookups within 15 minutes
       may be served from a short-lived server-side cache.
+  - name: Tools
+    description: |
+      The composer helpers from the SuperX app, over the API: rewrite a post,
+      edit one selected piece of it, apply one preset rewrite, check a claim,
+      or compare two versions.
+
+      Every one of them returns TEXT and writes nothing. Nothing here is
+      posted, scheduled or sent; save what you keep with
+      `POST /v1/posts/draft` or `POST /v1/scheduled-posts`. They cost AI
+      credits, measured from the models' real cost, and spend no live-data
+      allowance.
   - name: Media
   - name: Scheduling
   - name: Tags
@@ -537,6 +548,317 @@ paths:
                 error:
                   code: generation_failed
                   message: "Drafting failed and no credits were spent. Try again shortly."
+
+  /v1/posts/remix:
+    post:
+      tags: [Scheduling]
+      operationId: remixPost
+      summary: Rewrite a post in your voice
+      description: |
+        Rewrites a post in the account's own voice, as close to or as far from
+        the original as you ask. `closeness: 0` keeps only the idea,
+        `closeness: 100` stays very close to the original wording.
+
+        This is the same engine as the app composer's Remix button, so a
+        script and the app produce the same kind of output.
+
+        Nothing is posted, scheduled or stored: the response is TEXT for a
+        person to review, then send to `POST /v1/posts/draft` or
+        `POST /v1/scheduled-posts`.
+
+        Costs AI credits, measured from the models' real cost and typically 2.
+        Spends no live-data allowance. Needs a key with the `write` scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RemixPostRequest" }
+            example:
+              text: "Most founders think they have a traffic problem. They have a positioning problem."
+              closeness: 70
+              instructions: "Make it a question."
+      responses:
+        "200":
+          description: The remixed text.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      text:
+                        type: string
+                        description: The remixed post. Nothing was saved; send it on when a person is happy with it.
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+              example:
+                data:
+                  text: "what if it was never a traffic problem?"
+                meta:
+                  credits_charged: 2
+                  account_id: "1178367350552305665"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/tools/inline-edit:
+    post:
+      tags: [Tools]
+      operationId: inlineEditText
+      summary: Edit one selected piece of a post
+      description: |
+        Edits the piece of a post you select, keeping the style of the text
+        around it. Pass the selection as `text` and the whole post as
+        `full_text`, and the edit is written to drop straight back into place.
+
+        Steer it with a free-text `instruction`, a preset `edit_type`, or
+        both. At least one of the two is required.
+
+        Returns TEXT. Nothing is posted, scheduled or saved.
+
+        Costs AI credits, measured and typically 1. Spends no live-data
+        allowance. Needs a key with the `write` scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InlineEditRequest" }
+            example:
+              text: "Most founders think they have a traffic problem."
+              full_text: "Most founders think they have a traffic problem. They have a positioning problem."
+              edit_type: hook
+      responses:
+        "200":
+          description: The edited text.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      edited_text:
+                        type: string
+                        description: The edited selection, ready to drop back into the post.
+                      original_text:
+                        type: string
+                        description: The selection you sent, echoed back so a diff is easy.
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+              example:
+                data:
+                  edited_text: "you don't have a traffic problem."
+                  original_text: "Most founders think they have a traffic problem."
+                meta:
+                  credits_charged: 1
+                  account_id: "1178367350552305665"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/tools/rephrase:
+    post:
+      tags: [Tools]
+      operationId: rephraseText
+      summary: Rewrite a post one preset way
+      description: |
+        Applies one preset rewrite to a whole post.
+
+        The style presets (`improve`, `hook`, `engaging`, `humorous`,
+        `positive`, `creative`, `sarcastic`, `inspirational`) write in the
+        account's own voice. The mechanical ones (`grammar`, `translate`,
+        `clarity`, `details`, `concise`) do not: they leave the voice alone
+        and only do the job named.
+
+        `hook` rewrites the FIRST paragraph only and returns it with the rest
+        of the post unchanged behind it.
+
+        Returns TEXT. Nothing is posted, scheduled or saved.
+
+        Costs AI credits, measured and typically 1. Spends no live-data
+        allowance. Needs a key with the `write` scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RephraseRequest" }
+            example:
+              type: concise
+              text: "I have been thinking for quite a while now about the fact that most of the founders I speak to are convinced their biggest problem is traffic."
+      responses:
+        "200":
+          description: The rewritten text.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      text: { type: string }
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+              example:
+                data:
+                  text: "most founders are sure their problem is traffic. it rarely is."
+                meta:
+                  credits_charged: 1
+                  account_id: "1178367350552305665"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/tools/factcheck:
+    post:
+      tags: [Tools]
+      operationId: factCheckText
+      summary: Check a statement against a web search
+      description: |
+        Runs a web search for the statement and reports `true`, `false` or
+        `unknown` with a one-sentence comment and the sources it read.
+
+        **This is a model's reading of a couple of search results, not a
+        guarantee.** Show the `sources` alongside the verdict and never
+        present it as settled fact. `unknown` is a real and common answer,
+        including when the search returned nothing usable.
+
+        Nothing is posted, and nothing is written onto a post: the app's own
+        fact-check button is what stores a verdict against a post.
+
+        Costs AI credits, measured and typically 1. Spends no live-data
+        allowance. Needs a key with the `write` scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FactCheckRequest" }
+            example:
+              text: "X passed 600 million daily active users in 2026."
+      responses:
+        "200":
+          description: The verdict and its sources.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/FactCheckResult" }
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+              example:
+                data:
+                  result: unknown
+                  comment: "The sources do not report a figure for 2026."
+                  sources:
+                    - link: "https://example.com/report"
+                      title: "Platform usage report"
+                      snippet: "Daily active users were last disclosed in 2024."
+                meta:
+                  credits_charged: 1
+                  account_id: "1178367350552305665"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/tools/algorithm-predict:
+    post:
+      tags: [Tools]
+      operationId: predictAlgorithm
+      summary: Compare two versions of a post
+      description: |
+        Scores two versions of a post from 0 to 100 against what the X
+        timeline tends to reward (hook strength, what drives replies and
+        quotes, structure, shareability), and suggests a few short
+        improvements for each.
+
+        **The scores are a model's opinion.** They are useful for comparing
+        two drafts against each other, not for predicting real reach, and
+        should be reported that way.
+
+        Nothing is posted or scheduled.
+
+        Costs AI credits, measured and typically 1. Spends no live-data
+        allowance. Needs a key with the `write` scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AlgorithmPredictRequest" }
+            example:
+              version_a: "Most founders think they have a traffic problem. They have a positioning problem."
+              version_b: "you don't have a traffic problem. you have a positioning problem."
+      responses:
+        "200":
+          description: A score and improvements for each version.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      version_a: { $ref: "#/components/schemas/AlgorithmPredictVersion" }
+                      version_b: { $ref: "#/components/schemas/AlgorithmPredictVersion" }
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+              example:
+                data:
+                  version_a:
+                    score: 62
+                    improvements:
+                      - text: "Open with the reversal"
+                        tooltip: "Lead with the surprising half so the first line earns the second."
+                  version_b:
+                    score: 78
+                    improvements:
+                      - text: "Add one concrete example"
+                        tooltip: "A named situation makes the claim land instead of reading as a slogan."
+                meta:
+                  credits_charged: 1
+                  account_id: "1178367350552305665"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
   /v1/replies:
     get:
@@ -3218,6 +3540,127 @@ paths:
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
 
+  /v1/engage/reply-draft:
+    post:
+      tags: [Engage]
+      operationId: draftEngageReply
+      summary: Draft one reply to a post
+      description: |
+        Writes ONE reply draft in the account's own voice, using the same
+        engine, prompts and voice settings as the Generate Reply button in the
+        SuperX app.
+
+        **The draft is text. A person posts it.** No endpoint in this API
+        posts a reply, and this one does not either: it returns wording for
+        someone to read, edit and send from X or from the SuperX app. Sending
+        replies that read as inauthentic can get an X account suspended under
+        X's inauthentic-behavior rules and a SuperX account terminated. AI
+        output must be reviewed and meaningfully edited by a person before it
+        is posted.
+
+        Name the post exactly one of two ways:
+
+        - `post_id` reads the post LIVE, so the draft sees the real text, the
+          real author and the quoted post if there is one. That read costs one
+          live lookup on top of the credit, from the same allowance the
+          `/v1/x/*` endpoints use.
+        - `post` supplies the text (and optionally the author) yourself, and
+          nothing is read live.
+
+        Add `conversation` (oldest first) when the post sits in a thread, and
+        `quoted_post` when it quotes something you already have. `thoughts` is
+        what the person wants the reply to convey: ask them for it rather than
+        inventing an opinion on their behalf. `tone` picks the register.
+
+        Costs AI credits, measured from the models' real cost and typically 2
+        (the reply write plus the shared post-editor pass that runs after it).
+        Needs a key with the `write` scope. Accounts shared with you work
+        here: the draft changes nothing on the account, and the credits come
+        from the key owner's pool.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplyDraftRequest" }
+            examples:
+              by_post_id:
+                summary: Read the post live
+                value:
+                  post_id: "1899000000000000000"
+                  thoughts: "agree, and we saw the same thing after switching onboarding"
+                  tone: concise
+              by_text:
+                summary: Supply the post yourself
+                value:
+                  post:
+                    text: "Most founders think they have a traffic problem."
+                    author_name: "Pieter Levels"
+                    author_handle: "levelsio"
+                  tone: engaging
+      responses:
+        "200":
+          description: The reply draft.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reply:
+                        type: string
+                        description: The draft reply. Nothing was posted or sent.
+                      post_id:
+                        type: string
+                        nullable: true
+                        description: The post replied to, when you named one by id.
+                      author_handle:
+                        type: string
+                        nullable: true
+                        description: The author replied to, without the @, when it is known.
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+                  note:
+                    type: string
+              example:
+                data:
+                  reply: "had the exact same thing, it was positioning the whole time"
+                  post_id: "1899000000000000000"
+                  author_handle: "levelsio"
+                meta:
+                  credits_charged: 2
+                  account_id: "1178367350552305665"
+                note: "The draft is text. Nothing is posted or sent; a person reviews and posts it."
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404":
+          description: No public post with that id, or it is protected or deleted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: post_not_found
+                  message: "No public post with that id."
+        "422":
+          description: The post was read but carries no text to reply to. Supply the text yourself with `post`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: post_has_no_text
+                  message: "That post carries no text to reply to. Supply the text yourself with `post` instead."
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
   /v1/media:
     post:
       tags: [Media]
@@ -5563,7 +6006,11 @@ paths:
       description: |
         Generates a 2.5:1 cover image from the article's TITLE (a title is required) and, by default, attaches it as the article's cover. `attach: false` generates without touching the current cover; attach later via PATCH `cover_url`. Steer the artwork with `style_id` (one of the account's saved styles, from `GET /v1/cover-styles`) or `style_text` (a one-off description, max 8000 chars) - sending BOTH is a 400, so the request always says exactly which look was rendered. An unknown `style_id` returns 404 `cover_style_not_found`.
 
-        Slow (60-100 seconds) and paid: spends AI credits (about 25 per generation) against daily and monthly caps, all enforced server-side. Cap 429s carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month`; a credit 429 carries `credits_required` / `credits_remaining` / `reset_at`. Supports `Idempotency-Key`, recommended. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
+        Slow (60-100 seconds) and paid: a FLAT 25 AI credits per generation on this API, whatever the render actually costs, reported in `meta.credits_charged` and the `X-Credits-Charged` header. The account's daily and monthly cover caps apply on top and are enforced server-side; cap 429s carry `remaining_day` / `remaining_month` / `limit_day` / `limit_month`, and a credit 429 carries `credits_required` / `credits_remaining` / `reset_at`.
+
+        A generation that fails outright is refunded in full. A `504` is different: the render may well have completed and landed in the article's cover history, so the 25 credits stay charged and you should read the article before retrying.
+
+        Supports `Idempotency-Key`, recommended. Works for your main account or any account linked to it (`account_id`); accounts shared with you are read-only.
       parameters:
         - name: id
           in: path
@@ -5599,6 +6046,7 @@ paths:
             X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
             X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
             X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
             X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
             X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
           content:
@@ -5618,12 +6066,20 @@ paths:
                         description: Whether the cover was attached to the article.
                       remaining_day: { type: integer, nullable: true }
                       remaining_month: { type: integer, nullable: true }
+                  meta:
+                    type: object
+                    properties:
+                      credits_charged:
+                        type: integer
+                        description: Always 25. A generation is a flat price on this API.
               example:
                 data:
                   cover: { url: "https://media.superx.so/covers/example.jpg" }
                   attached: true
                   remaining_day: 3
                   remaining_month: 11
+                meta:
+                  credits_charged: 25
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403":
@@ -5688,7 +6144,7 @@ paths:
               example:
                 error:
                   code: upstream_timeout
-                  message: "Cover generation did not respond in time and may still have completed. GET the article to check its cover before retrying."
+                  message: "Cover generation did not respond in time and may still have completed. The 25 credits stay charged; GET the article to check its cover before retrying."
 
   /v1/cover-styles:
     get:
@@ -7090,9 +7546,9 @@ components:
         type: integer
     X-Credits-Charged:
       description: >-
-        AI credits kept for this call. Sent where the endpoint knows the final
-        number (post drafts); cover generation settles to its measured cost
-        after answering and sends the other two headers only.
+        AI credits kept for this call. Sent on every endpoint that settles its
+        charge before answering, which is all of them except the ones that
+        answer 202 and finish in the background.
       schema:
         type: integer
     X-Credits-Remaining:
@@ -8490,6 +8946,230 @@ components:
         leads:
           type: array
           items: { $ref: "#/components/schemas/LeadSearchLead" }
+
+    ToolMeta:
+      type: object
+      description: What the call cost and which account it ran as.
+      properties:
+        credits_charged:
+          type: integer
+          description: AI credits kept for this call, settled from the models' real cost.
+        account_id:
+          type: string
+          description: The X account the call ran as.
+
+    ReplyPostShape:
+      type: object
+      required: [text]
+      description: A post, supplied by you rather than read from X.
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        author_name:
+          type: string
+          maxLength: 200
+          description: The author's display name.
+        author_handle:
+          type: string
+          maxLength: 200
+          description: The author's handle. A leading @ is accepted and stripped.
+
+    ReplyDraftRequest:
+      type: object
+      description: Exactly one of post_id and post is required.
+      properties:
+        post_id:
+          type: string
+          pattern: "^[0-9]{1,25}$"
+          description: An X post id. The API reads the post live, which costs one live lookup on top of the credit.
+        post:
+          $ref: "#/components/schemas/ReplyPostShape"
+        conversation:
+          type: array
+          maxItems: 10
+          description: The thread so far, OLDEST FIRST, so the reply fits the conversation.
+          items: { $ref: "#/components/schemas/ReplyPostShape" }
+        quoted_post:
+          allOf:
+            - $ref: "#/components/schemas/ReplyPostShape"
+          description: The post that the post being replied to quotes. Filled in automatically when you pass post_id.
+        thoughts:
+          type: string
+          maxLength: 2000
+          description: What the person wants the reply to convey. Ask them; do not invent an opinion for them.
+        tone:
+          type: string
+          enum: [engaging, humorous, creative, sarcastic, inspirational, concise]
+        account_id:
+          type: string
+
+    RemixPostRequest:
+      type: object
+      required: [text, closeness]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: The post to remix.
+        closeness:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 0 keeps only the idea, 100 stays very close to the original wording.
+        instructions:
+          type: string
+          maxLength: 500
+          description: Extra direction for this remix.
+        account_id:
+          type: string
+
+    InlineEditRequest:
+      type: object
+      required: [text]
+      description: At least one of instruction and edit_type is required.
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: The selected piece of the post to edit.
+        full_text:
+          type: string
+          maxLength: 4000
+          description: The whole post the selection sits in, so the edit matches its style.
+        instruction:
+          type: string
+          maxLength: 500
+          description: "Free-text direction, e.g. 'make this one line, lowercase'."
+        edit_type:
+          type: string
+          enum:
+            [
+              grammar,
+              translate,
+              hook,
+              details,
+              concise,
+              engaging,
+              humorous,
+              creative,
+              sarcastic,
+              inspirational,
+              fix-grammar,
+              expand,
+              simplify,
+              rewrite,
+              change-tone,
+            ]
+          description: A preset edit. The last five are older names kept working.
+        thread_context:
+          type: array
+          maxItems: 25
+          description: The thread's other parts, in order, for context only.
+          items:
+            type: string
+            maxLength: 4000
+        account_id:
+          type: string
+
+    RephraseRequest:
+      type: object
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          enum:
+            [
+              improve,
+              grammar,
+              translate,
+              hook,
+              details,
+              clarity,
+              engaging,
+              humorous,
+              positive,
+              creative,
+              sarcastic,
+              inspirational,
+              concise,
+            ]
+          description: Which rewrite to apply.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        account_id:
+          type: string
+
+    FactCheckRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: The statement to check.
+        account_id:
+          type: string
+
+    FactCheckResult:
+      type: object
+      properties:
+        result:
+          type: string
+          enum: ["true", "false", unknown]
+          description: The model's verdict. `unknown` is a real answer, not an error.
+        comment:
+          type: string
+          nullable: true
+          description: One sentence explaining the verdict.
+        sources:
+          type: array
+          description: The search results the verdict was read from. Show these alongside it.
+          items:
+            type: object
+            properties:
+              link: { type: string }
+              title: { type: string }
+              snippet: { type: string }
+
+    AlgorithmPredictRequest:
+      type: object
+      required: [version_a, version_b]
+      properties:
+        version_a:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        version_b:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        account_id:
+          type: string
+
+    AlgorithmPredictVersion:
+      type: object
+      properties:
+        score:
+          type: integer
+          description: 0 to 100. A model's opinion, for comparing the two versions against each other.
+        improvements:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+                description: The change, in a handful of words.
+              tooltip:
+                type: string
+                description: Why it would help, with an example.
 
     DraftOutreachRequest:
       type: object
