@@ -80,6 +80,20 @@ tags:
   - name: Tags
   - name: Context
   - name: Queue
+  - name: DMs
+    description: |
+      Queue direct messages into the account's own DM pipeline, and read or
+      cancel what is waiting.
+
+      NOTHING HERE SENDS A MESSAGE. `POST /v1/dm/campaigns` enqueues; the
+      SuperX app's scheduler is what sends, within the account's daily and
+      monthly DM limits, so the create response is counts, not deliveries.
+      Unsent messages can be cancelled until the scheduler picks them up.
+
+      You are responsible for the messages you queue. Unsolicited or
+      automated bulk DMs may get an X account suspended under X's rules and
+      a SuperX account terminated, so confirm the recipient list and the
+      exact wording with the person on whose behalf you are queueing.
   - name: Articles
   - name: Meta
 
@@ -4115,15 +4129,21 @@ paths:
         Video is not supported yet.
 
         Advanced settings (`auto_retweet`, `auto_delete`, `auto_plug`,
-        `super_followers_only`): omit a setting to inherit its Default Post
-        Settings value from the SuperX app, send an object (or `true`/`false`
-        for `super_followers_only`) to override, or send `null` to turn it
-        off for this post. Exactly five settings inherit this way: auto
-        retweet, auto delete, auto plug, auto DM, and Super Followers only.
-        Other composer defaults (for example Bluesky cross-posting or
-        share-with-followers) are never applied to API posts. Auto DM always
-        inherits and has no request parameter; when a plan limit strips it,
-        the response carries `auto_dm_skipped: true` instead of failing.
+        `auto_dm`, `super_followers_only`): omit a setting to inherit its
+        Default Post Settings value from the SuperX app, send an object (or
+        `true`/`false` for `super_followers_only`) to override, or send
+        `null` to turn it off for this post. Exactly five settings inherit
+        this way: auto retweet, auto delete, auto plug, auto DM, and Super
+        Followers only. Other composer defaults (for example Bluesky
+        cross-posting or share-with-followers) are never applied to API
+        posts.
+
+        `auto_dm` direct-messages the people who reply to or repost the post
+        once it is live. Your plan caps how many posts a month may carry one
+        (`posts_with_auto_dm` in `GET /v1/dm/limits`): when that cap stops
+        it, the post is still created and the response carries
+        `auto_dm_skipped: true` instead of failing. Reading a post back shows
+        that an auto DM is attached but never its message text.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -4238,6 +4258,10 @@ paths:
                       type: integer
                       minimum: 1
                       description: Likes threshold that triggers the plug reply.
+                auto_dm:
+                  allOf:
+                    - $ref: "#/components/schemas/AutoDm"
+                  description: "Auto DM: message the people who reply to or repost this post once it is live. Omit to inherit your defaults; `null` turns it off for this post."
                 super_followers_only:
                   type: boolean
                   description: Post to Super Followers only. Omit to inherit your defaults.
@@ -4716,10 +4740,11 @@ paths:
         Concurrent edits are last-write-wins.
 
         Advanced settings (`auto_retweet`, `auto_delete`, `auto_plug`,
-        `super_followers_only`) use the same shapes as create but never
-        inherit defaults on update: provided = override, omitted = keep the
-        post's current setting, `null` = remove it. Auto DM has no parameter
-        and always round-trips untouched.
+        `auto_dm`, `super_followers_only`) use the same shapes as create but
+        never inherit defaults on update: provided = override, omitted = keep
+        the post's current setting, `null` = remove it. `auto_dm: null` also
+        gives back the month's posts-with-auto-DM slot; setting one consumes
+        a slot.
       parameters:
         - name: id
           in: path
@@ -4822,6 +4847,10 @@ paths:
                     threshold:
                       type: integer
                       minimum: 1
+                auto_dm:
+                  allOf:
+                    - $ref: "#/components/schemas/AutoDm"
+                  description: "Auto DM override; `null` removes it and gives back the month's slot. Omit to keep the current setting. When a plan limit stops a new one from attaching, the edit still lands and the response carries `auto_dm_skipped: true`."
                 super_followers_only:
                   type: boolean
                   description: Post to Super Followers only. Omit to keep the current setting.
@@ -4859,7 +4888,17 @@ paths:
                 type: object
                 properties:
                   data:
-                    $ref: "#/components/schemas/ScheduledPost"
+                    allOf:
+                      - $ref: "#/components/schemas/ScheduledPost"
+                      - type: object
+                        properties:
+                          auto_dm_skipped:
+                            type: boolean
+                            description: >-
+                              Present (and true) only when a plan limit
+                              stopped this edit from attaching an Auto DM.
+                              The edit itself landed; the post simply carries
+                              no Auto DM.
               example:
                 data:
                   id: "Fq2xWnA0kLpR7sVtYu3zc"
@@ -5547,6 +5586,413 @@ paths:
                   code: scrape_failed
                   message: "This page could not be read. Check the product url and try again."
         "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/dm/campaigns:
+    post:
+      tags: [DMs]
+      operationId: queueDmCampaign
+      summary: Queue a DM campaign
+      description: |
+        Queues direct messages to up to 100 X users.
+
+        NOTHING IS SENT BY THIS CALL. The messages go into the account's own
+        DM queue, the same one the SuperX app fills, and the app's scheduler
+        sends them within the account's daily and monthly DM limits. The 201
+        is therefore COUNTS, not deliveries: read
+        `GET /v1/dm/campaigns/{id}` to see what has actually gone out.
+
+        `[name]`, `[first]` and `[handle]` in the message are filled in per
+        recipient. A recipient may carry its own `message`, which wins over
+        the shared one; when every recipient has one, the top-level `message`
+        may be omitted.
+
+        People this account already messaged in the last 24 hours are skipped
+        and counted in `duplicates`, and the sending account is never
+        messaged. `spread: false` (the default) queues only what today's
+        remaining daily allowance holds and skips the rest; `spread: true`
+        places the rest over the coming days, up to 30 days ahead.
+
+        When EVERY recipient is skipped, nothing is queued: the answer is
+        `200` with `data.id: null` and a note saying so, rather than a `201`
+        carrying an id that would resolve to nothing.
+
+        Costs no AI credits. It counts against the writes rate-limit bucket
+        and against the account's own DM allowances
+        (`GET /v1/dm/limits`). Takes up to 30 seconds.
+
+        With an `Idempotency-Key`, the campaign id IS the reservation id, so a
+        retry after a timeout converges on the same campaign instead of
+        orphaning the rows the first attempt queued.
+
+        You are responsible for these messages under X's rules on automation
+        and unsolicited contact.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipients]
+              properties:
+                recipients:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [x_user_id]
+                    properties:
+                      x_user_id:
+                        type: string
+                        pattern: "^[0-9]{1,25}$"
+                        description: The recipient's X user id (digits).
+                      handle:
+                        type: string
+                        maxLength: 15
+                        description: The recipient's @handle, used to fill `[handle]`.
+                      name:
+                        type: string
+                        maxLength: 100
+                        description: The recipient's display name, used to fill `[name]` and `[first]`.
+                      message:
+                        type: string
+                        minLength: 1
+                        maxLength: 1000
+                        description: This recipient's own message, instead of the shared one.
+                      source_post_id:
+                        type: string
+                        pattern: "^[0-9]{1,25}$"
+                        description: The post this person was found on, so later imports of it can skip them.
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                  description: The shared message. Required unless every recipient carries its own.
+                spread:
+                  type: boolean
+                  default: false
+                  description: "Spread what today's daily allowance cannot hold over the coming days instead of skipping it. Ignored when `GET /v1/dm/limits` reports `scheduling_enabled: false`; the overflow is then counted in `skipped`."
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              recipients:
+                - x_user_id: "44196397"
+                  handle: "levelsio"
+                  name: "Pieter Levels"
+              message: "Hey [first], loved your thread on shipping fast."
+      responses:
+        "200":
+          description: Nothing was queued because every recipient was skipped. `data.id` is null.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/DmCampaign" }
+                  note: { type: string }
+              example:
+                data:
+                  id: null
+                  queued: 0
+                  queued_now: 0
+                  scheduled: []
+                  scheduled_total: 0
+                  skipped: 2
+                  duplicates: 2
+                  remaining_this_month: 450
+                note: "Every recipient was skipped (already queued in the last 24 hours, over quota, or the sender); nothing was queued."
+        "201":
+          description: The campaign was queued. Nothing has been sent.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+            Idempotency-Replayed:
+              description: Present and "true" when this response was replayed from a previous request with the same Idempotency-Key.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/DmCampaign" }
+                  note:
+                    type: string
+                    description: A reminder that nothing was sent by this call.
+              example:
+                data:
+                  id: "V1StGXR8_Z5jdHi6B-myT"
+                  queued: 2
+                  queued_now: 2
+                  scheduled: []
+                  scheduled_total: 0
+                  skipped: 0
+                  duplicates: 0
+                  remaining_this_month: 448
+                note: "Queued into your DM pipeline. Nothing is sent by this call; the scheduler sends within your daily and monthly limits. You are responsible for these messages under X's automation rules."
+        "400":
+          description: A parameter is invalid (`invalid_parameter`), or the account has no X account connected (`account_not_linked`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: account_not_linked
+                  message: "This account has no X account connected, so it cannot send DMs."
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: The key is read-only (`insufficient_scope`), the account is shared with you (`writes_main_account_only`), the plan has no DM allowance (`dm_not_in_plan`), or the X account must be reconnected in the app (`reauth_required`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: dm_not_in_plan
+                  message: "This account's plan does not include DM sending."
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "409":
+          description: The Idempotency-Key was already used with a different request body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: idempotency_key_reuse
+                  message: "This Idempotency-Key was already used with a different request body."
+        "429": { $ref: "#/components/responses/DmLimitReached" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/dm/campaigns/{id}:
+    get:
+      tags: [DMs]
+      operationId: getDmCampaign
+      summary: Read one DM campaign
+      description: |
+        The messages this campaign queued, with a count per status.
+        `pending` has not gone out yet and can still be cancelled;
+        `sending` is in flight and cannot be stopped.
+
+        The rows ARE the campaign, so a campaign whose messages have all been
+        cancelled returns `404 campaign_not_found`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The campaign.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      counts:
+                        type: object
+                        properties:
+                          pending: { type: integer }
+                          sending: { type: integer }
+                          sent: { type: integer }
+                          failed: { type: integer }
+                          skipped: { type: integer }
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/DmQueueItem" }
+              example:
+                data:
+                  id: "V1StGXR8_Z5jdHi6B-myT"
+                  counts: { pending: 2, sending: 0, sent: 0, failed: 0, skipped: 0 }
+                  items:
+                    - id: "aZ7q2kR0pLmX"
+                      campaign_id: "V1StGXR8_Z5jdHi6B-myT"
+                      recipient:
+                        x_user_id: "44196397"
+                        handle: "levelsio"
+                        name: "Pieter Levels"
+                        avatar_url: null
+                      message: "Hey Pieter, loved your thread on shipping fast."
+                      template: "Hey [first], loved your thread on shipping fast."
+                      status: "pending"
+                      error: null
+                      created_at: "2026-09-11T09:00:00.000Z"
+                      scheduled_at: null
+                      sent_at: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/CampaignNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+    delete:
+      tags: [DMs]
+      operationId: cancelDmCampaign
+      summary: Cancel a campaign's unsent messages
+      description: |
+        Deletes every message of this campaign still waiting to go out,
+        queued-for-now and scheduled-for-a-later-day alike, and releases the
+        monthly allowance they were holding.
+
+        Messages already sent are untouched and cannot be recalled, and one
+        the scheduler has already picked up (`sending`) cannot be stopped. A
+        campaign that exists but has nothing left to cancel (everything
+        already sent, failed or cancelled) answers `cancelled: 0`; an id that
+        never queued anything on this account answers
+        `404 campaign_not_found`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: How many unsent messages were cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      cancelled: { type: integer }
+              example:
+                data: { cancelled: 2 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/CampaignNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/dm/queue:
+    get:
+      tags: [DMs]
+      operationId: listDmQueue
+      summary: List the DM queue
+      description: |
+        The account's bulk DM rows, newest first: what is waiting, what went
+        out and what failed. Rows queued in the SuperX app appear here too,
+        with `campaign_id: null`.
+
+        `meta.total` counts the rows matching your filters; `meta.pending` is
+        the account's whole unsent count, the figure the app shows.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Rows per page, 1 to 200 (default 50).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, sending, sent, failed, skipped]
+        - name: campaign_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: A page of the DM queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/DmQueueItem" }
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      pending: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/dm/limits:
+    get:
+      tags: [DMs]
+      operationId: getDmLimits
+      summary: DM allowances and usage
+      description: |
+        The account's DM caps and how much of each is used. These are PLAN
+        limits, not AI credits, and nothing here is charged.
+
+        `monthly.committed` is the messages already queued and not yet sent:
+        they are held against the monthly allowance until they go out or are
+        cancelled. `posts_with_auto_dm` is the separate cap on how many
+        scheduled posts a month may carry an `auto_dm`.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The account's DM limits.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/DmLimits" }
+                  meta:
+                    type: object
+                    properties:
+                      account_id: { type: string }
+              example:
+                data:
+                  tier: "ultra"
+                  monthly:
+                    max: 500
+                    used: 50
+                    committed: 2
+                    remaining: 448
+                    reset_at: "2026-10-01T00:00:00.000Z"
+                  daily_bulk: { max: 500, used: 2, remaining: 498 }
+                  per_post_max: 100
+                  posts_with_auto_dm: { max: 30, used: 1, remaining: 29 }
+                  scheduled_ahead: 0
+                  scheduling_enabled: true
+                meta:
+                  account_id: "1178367350552305665"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/UpstreamUnavailable" }
@@ -10140,7 +10586,7 @@ components:
         auto_dm:
           type: object
           nullable: true
-          description: Applied Auto DM setting (inherit-only, read-only); null when off. The DM text stays in the SuperX app.
+          description: "Applied Auto DM setting; null when off. Read-only here, and the DM text is never returned, only that one is attached."
           properties:
             enabled:
               type: boolean
@@ -10280,6 +10726,159 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    AutoDm:
+      type: object
+      nullable: true
+      required: [message]
+      description: |
+        Auto DM settings for one post. The DM goes to the people who reply to
+        or repost the post once it is live, sent by the SuperX app's
+        scheduler inside the account's DM limits.
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: "The direct message. `[name]`, `[first]` and `[handle]` are filled in per recipient. Always required on a non-null `auto_dm`."
+        triggers:
+          type: object
+          additionalProperties: false
+          description: "Who gets the DM. At least one must be true; defaults to reply only. Any other key is rejected with `400 invalid_parameter`."
+          properties:
+            reply:
+              type: boolean
+              description: DM the people who reply to the post.
+            repost:
+              type: boolean
+              description: DM the people who repost the post.
+            retweet:
+              type: boolean
+              description: "Alias of `repost`, accepted so the value a post reads back (which reports `retweet`) can be sent straight back. Sending both with different values is a `400`."
+        enabled:
+          type: boolean
+          default: true
+          description: "`false` behaves exactly like sending `auto_dm: null`: the Auto DM is cleared and nothing is stored. Prefer `null`."
+        max_dms:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+          description: Most people to DM for this post. The plan's per-post cap still applies.
+        batch_mode:
+          type: boolean
+          description: Send the DMs in one batch rather than as engagement arrives.
+
+    DmCampaign:
+      type: object
+      description: The result of queueing a campaign. Counts, not deliveries.
+      properties:
+        id:
+          type: string
+          nullable: true
+          description: "Campaign id. Use it with `GET`/`DELETE /v1/dm/campaigns/{id}` and as `campaign_id` on `GET /v1/dm/queue`. **null when nothing was queued** (every recipient skipped): no row carries an id, so there is none to hand back."
+        queued:
+          type: integer
+          description: Messages placed in the queue by this call.
+        queued_now:
+          type: integer
+          description: How many of those are due to go out in the current daily window.
+        scheduled:
+          type: array
+          description: Per-day placement of the rest, when `spread` was true.
+          items:
+            type: object
+            properties:
+              day:
+                type: string
+                format: date
+              count:
+                type: integer
+        scheduled_total:
+          type: integer
+        skipped:
+          type: integer
+          description: Recipients not queued (duplicates, the monthly cap, or the daily cap without `spread`).
+        duplicates:
+          type: integer
+          description: Recipients skipped because this account messaged them in the last 24 hours, or because they are the sending account.
+        remaining_this_month:
+          type: integer
+          description: Messages left in the monthly allowance after this campaign.
+
+    DmQueueItem:
+      type: object
+      description: One message in the DM queue.
+      properties:
+        id: { type: string }
+        campaign_id:
+          type: string
+          nullable: true
+          description: null for messages queued in the SuperX app.
+        recipient:
+          type: object
+          properties:
+            x_user_id: { type: string, nullable: true }
+            handle: { type: string, nullable: true }
+            name: { type: string, nullable: true }
+            avatar_url: { type: string, nullable: true }
+        message:
+          type: string
+          nullable: true
+          description: The message as it will be sent, with the tokens already filled in.
+        template:
+          type: string
+          nullable: true
+          description: The message before token substitution.
+        status:
+          type: string
+          enum: [pending, sending, sent, failed, skipped]
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: null means the message is in the current daily window rather than placed on a later day.
+        sent_at: { type: string, format: date-time, nullable: true }
+
+    DmLimits:
+      type: object
+      description: The account's DM allowances. Plan limits, not AI credits.
+      properties:
+        tier: { type: string, nullable: true }
+        monthly:
+          type: object
+          properties:
+            max: { type: integer }
+            used: { type: integer }
+            committed:
+              type: integer
+              description: Messages queued and not yet sent. They are held against the monthly allowance until they go out or are cancelled.
+            remaining: { type: integer }
+            reset_at: { type: string, format: date-time, nullable: true }
+        daily_bulk:
+          type: object
+          properties:
+            max: { type: integer }
+            used: { type: integer }
+            remaining: { type: integer }
+        per_post_max:
+          type: integer
+          description: Most people one post's auto DM may message.
+        posts_with_auto_dm:
+          type: object
+          description: How many scheduled posts a month may carry an auto DM.
+          properties:
+            max: { type: integer }
+            used: { type: integer }
+            remaining: { type: integer }
+        scheduled_ahead:
+          type: integer
+          description: Unsent messages placed on a later day.
+        scheduling_enabled:
+          type: boolean
+          description: Whether placing messages on later days is currently available.
 
     StyleGuideGenerated:
       type: object
@@ -10948,6 +11547,37 @@ components:
             error:
               code: profile_not_synced
               message: "This account's X profile has not synced yet. Open it in the SuperX app once, then retry."
+
+    CampaignNotFound:
+      description: No DM campaign with that id belongs to this account, or it queued nothing in the first place, or every message it queued is gone.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: campaign_not_found
+              message: "No DM campaign with that id belongs to this account."
+
+    DmLimitReached:
+      description: >-
+        The account's DM allowance is used up (`dm_limit_reached`). `scope` is
+        `month` or `day`; the monthly refusal also carries `reset_at`. These
+        are plan limits, not AI credits.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: dm_limit_reached
+              message: "This account's monthly DM allowance is used up."
+              scope: month
+              retry_after: 86400
+              reset_at: "2026-10-01T00:00:00.000Z"
 
     AiActionLimited:
       description: |

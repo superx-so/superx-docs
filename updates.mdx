@@ -3,6 +3,29 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-10: DM campaigns and auto DM on scheduled posts
+
+The SuperX app's DM pipeline is now reachable from the API, MCP and the CLI. **Nothing in it sends a message at the time you call it.** A campaign ENQUEUES: the messages go into the account's own DM queue, the same one the app fills, and the app's scheduler sends them within the account's daily and monthly DM limits. Every create response is counts, not deliveries. You are responsible for the messages you queue under X's rules on automation and unsolicited contact.
+
+**API**
+
+- `POST /v1/dm/campaigns` queues direct messages to up to 100 X users: `recipients` of `{ x_user_id, handle?, name?, message?, source_post_id? }`, a shared `message` in which `[name]`, `[first]` and `[handle]` are filled per recipient, and `spread`. People the account already messaged in the last 24 hours are skipped and counted in `duplicates`, and the sending account is never messaged. `spread: false` (the default) queues only what today's daily allowance holds; `spread: true` places the rest over the coming days (ignored, with the overflow counted in `skipped`, when `GET /v1/dm/limits` reports `scheduling_enabled: false`). When every recipient is skipped nothing is queued, so the answer is `200` with `data.id: null` and a note saying so. Supports `Idempotency-Key`, and with one the campaign id IS the reservation, so a retry after a timeout converges on the same campaign
+- `GET /v1/dm/campaigns/{id}` returns the campaign's status counts and its individual messages, `DELETE /v1/dm/campaigns/{id}` cancels the unsent ones and gives back the monthly allowance they were holding (a campaign that exists but has nothing left answers `cancelled: 0`; an id that never queued anything answers `404`), and `GET /v1/dm/queue` lists the whole queue with `status` and `campaign_id` filters. Rows queued in the app appear there too, with `campaign_id: null`
+- `GET /v1/dm/limits` returns the account's DM allowances and usage: the monthly allowance with its committed count, the daily bulk allowance, the per-post maximum and the separate cap on how many scheduled posts a month may carry an auto DM. These are plan limits, not AI credits, and nothing in `/v1/dm/*` charges credits
+- Scheduled posts accept `auto_dm` on create and PATCH: `{ message, triggers: { reply, repost }, enabled?, max_dms?, batch_mode? }`. `message` is always required; `retweet` is accepted as an alias of `repost` and an unknown trigger key is a 400; `enabled: false` behaves exactly like `null`. The DM goes to the people who reply to or repost the post once it is live. Omit it and the post keeps inheriting your Default Post Settings; `null` turns it off, and on PATCH also gives back the month's post slot. When the posts-with-auto-DM cap stops it, the write still lands and the response carries `auto_dm_skipped: true` (on PATCH as well as create). Reading a post back never returns the DM text
+- `POST /v1/scheduled-posts` with `scheduled_for: "now"` accepts `auto_dm` too, on the same terms, and reports `auto_dm_skipped` the same way
+- New error codes: 400 `account_not_linked`, 403 `dm_not_in_plan`, 404 `campaign_not_found` and 429 `dm_limit_reached` with `scope` `month` or `day`
+
+**MCP**
+
+- Five new tools: `queue_dm_campaign` and `cancel_dm_campaign` (write scope), and the read-only `get_dm_campaign`, `list_dm_queue` and `get_dm_limits`. 99 tools in total
+- `schedule_post` and `update_scheduled_post` accept an `autoDM` parameter with the same fields
+
+**CLI**
+
+- `superx dm:campaign --recipients <file> --message` (`--recipients=-` reads stdin), `superx dm:campaign-status <id>`, `superx dm:cancel <id>`, `superx dm:queue` and `superx dm:limits`
+- `superx scheduled:create` and `superx scheduled:update` gain `--auto-dm-message`, `--auto-dm-triggers reply,repost`, `--auto-dm-max`, `--auto-dm-batch` and `--no-auto-dm`
+
 ## 2026-09-10: Reply drafts, remix, the composer tools and the free helpers
 
 The writing helpers from the SuperX app composer are now on the API, MCP and the CLI, along with five free helpers that keep the account's writing context current. Every one of them returns TEXT or settings and writes nothing to X: nothing here is posted, scheduled or sent.

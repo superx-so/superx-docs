@@ -198,6 +198,33 @@ Results are cached server-side for about 15 minutes. A repeat lookup inside that
 
 `lookup_quota_exceeded` covers three cases and the body says which: your own allowance is used up (`limit` is present), the SuperX-wide allowance is used up (no `limit`, because it is not your account's budget), or the counter could not be verified and the call was refused rather than run unmetered (no `limit`, and a short `retry_after` rather than one pointing at midnight). Read `error.retry_after` rather than assuming midnight.
 
+## DM limits
+
+Direct messages are not AI credits and are not metered like them. Each plan carries its own DM allowances, and `GET /v1/dm/limits` returns all of them for an account:
+
+- a **monthly** message allowance (`monthly.max`), with `monthly.committed` counting the messages already queued and not yet sent, which are held against the allowance until they go out or are cancelled,
+- a **daily bulk** allowance (`daily_bulk.max`), how many may go out in a rolling 24 hours,
+- **`per_post_max`**, how many people one post's `auto_dm` may message,
+- **`posts_with_auto_dm`**, how many scheduled posts a month may carry an `auto_dm` at all.
+
+`POST /v1/dm/campaigns` counts against the writes bucket like any other write, and costs no AI credits. When an allowance is used up it answers `429 dm_limit_reached` with a `Retry-After` header and a `scope`:
+
+```json
+{
+  "error": {
+    "code": "dm_limit_reached",
+    "message": "This account's monthly DM allowance is used up.",
+    "scope": "month",
+    "retry_after": 86400,
+    "reset_at": "2026-10-01T00:00:00.000Z"
+  }
+}
+```
+
+On `scope: "day"` the campaign does not have to wait: send it again with `spread: true` and the messages today's allowance cannot hold are placed over the coming days instead of being skipped. One caveat: when `GET /v1/dm/limits` reports `scheduling_enabled: false`, placing messages on later days is switched off account-wide, so `spread: true` is ignored and the overflow is counted in `skipped` instead.
+
+Neither the campaign endpoint nor `auto_dm` sends anything at the time you call it. Both ENQUEUE, and the SuperX app's scheduler sends within these limits, which is why a campaign answers with counts rather than deliveries. Unsent messages can be cancelled with `DELETE /v1/dm/campaigns/{id}`, and cancelling gives the monthly allowance back.
+
 ## Failed authentication attempts
 
 Requests with unknown or revoked keys are limited separately, per IP address, at 20 per minute. This limiter never affects correctly authenticated traffic.

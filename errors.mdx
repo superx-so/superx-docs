@@ -52,6 +52,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 400 | `creator_style_unavailable` | A style guide for that creator could not be built (not enough public posts). Terminal: retrying will not help |
 | 400 | `dataset_has_no_people` | The dataset holds no people to add to a contact list: own-content datasets (`has_people: false`) hold posts, and rows without an X account id are skipped |
 | 400 | `not_enough_posts` | `POST /v1/context/style-guide/regenerate` needs at least 5 recent posts on the account to read a style from. Terminal until the account posts more |
+| 400 | `account_not_linked` | `POST /v1/dm/campaigns` needs a connected X account on the sending account; connect it in the SuperX app |
 | 401 | `unauthorized` | Missing or malformed `Authorization` header |
 | 401 | `invalid_api_key` | Unknown or revoked key |
 | 403 | `insufficient_scope` | Read-only key used on a non-GET endpoint |
@@ -60,6 +61,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 403 | `onboarding_required` | Finish onboarding in the SuperX app before scheduling posts |
 | 403 | `post_quota_exceeded` | Post quota for the billing period is used up |
 | 403 | `reauth_required` | The connected X account must be re-authorized in the SuperX app before it can publish. Returned by `scheduled_for: "now"` and article publishing |
+| 403 | `dm_not_in_plan` | The account's plan carries no DM allowance, so `POST /v1/dm/campaigns` cannot queue anything. Check `GET /v1/dm/limits` |
 | 403 | `cap_reached` | A plan limit on signal agents, or on the signals one agent may hold, is reached. Pause or delete one, or upgrade |
 | 403 | (legacy string) | Subscription lapsed; see above |
 | 404 | `account_not_found` | `account_id` is not one of your accounts |
@@ -76,6 +78,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 404 | `lead_not_found` | No lead with that id belongs to this account. Lead ids come from `GET /v1/signals/leads` and are not X user ids |
 | 404 | `cover_style_not_found` | The `style_id` is not one of your saved cover styles; list them at `GET /v1/cover-styles` |
 | 404 | `product_not_found` | No product with that id belongs to this account. Product ids come from `GET /v1/context`; returned by `POST /v1/context/products/{id}/scrape` |
+| 404 | `campaign_not_found` | No DM campaign with that id belongs to this account, or it queued nothing in the first place (every recipient was skipped, so `data.id` came back null), or every message it queued has been sent or cancelled. Campaign ids come from `POST /v1/dm/campaigns` |
 | 404 | `dataset_not_found` | No dataset with that id belongs to this key, or it expired (datasets are kept for 30 days). List them at `GET /v1/datasets` |
 | 409 | `idempotency_key_reuse` | Same `Idempotency-Key` with a different request body |
 | 409 | `idempotency_in_flight` | An earlier request with this `Idempotency-Key` is still publishing. Wait for the `Retry-After` delay and retry the SAME key; it will never publish twice |
@@ -92,6 +95,7 @@ To handle every case, check whether `error` is a string or an object. All other 
 | 429 | `media_quota_exceeded` | Daily media upload limit (100 per key) reached; honor `Retry-After` |
 | 429 | `ai_credits_exhausted` | The account's AI credit pool is used up (AI cover generation, post drafting, reply drafts, remix and the `/v1/tools/*` helpers). Carries `credits_required`, `credits_remaining` and `reset_at`, plus a `Retry-After` header. See [Credits](/rate-limits#credits) |
 | 429 | `ai_action_limited` | A count limit for this AI action is used up. Carries `scope`, `retry_after`, `reset_at` and a `Retry-After` header; the daily counters reset at midnight UTC. `scope: "account"` is your own ceiling: your plan's daily cap for the action, the once-an-hour limit on `POST /v1/context/style-guide/regenerate` (here `reset_at` is an hour after the last SUCCESSFUL run, not midnight), the 3 live style-guide attempts a day that same endpoint allows an account with fewer than 5 stored posts, or the 20 page reads a day shared with the SuperX app that `POST /v1/context/products/{id}/scrape` and `POST /v1/signals/icp/expand-from-url` draw on. `scope: "platform"` is the platform-wide fair-use ceiling on live-data actions, shared with every SuperX account, so your own allowance is untouched and the fix is to wait and retry |
+| 429 | `dm_limit_reached` | The account's DM allowance is used up. Carries `scope` (`month` or `day`) and a `Retry-After` header; the monthly refusal also carries `reset_at`. These are PLAN limits, not AI credits, so `GET /v1/dm/limits` is where the numbers live. On `scope: "day"`, `spread: true` places the campaign over the coming days instead |
 | 429 | `collection_quota_exceeded` | Today's dataset collections are used up (10 per account per day, shared with the collections Ask SuperX runs in the app; a refinement counts as one). Carries `retry_after`, `limit` and `reset_at`, plus a `Retry-After` header; the counter resets at midnight UTC |
 | 429 | `lookup_quota_exceeded` | The daily live X lookup allowance (300 per account, shared with Ask SuperX in the app) is used up, or it could not be verified. Carries `retry_after`, `limit` and `reset_at`, plus a `Retry-After` header; the counter resets at midnight UTC. See [Rate limits](/rate-limits#live-x-lookups) |
 | 500 | `internal_error` | Unexpected server error |
