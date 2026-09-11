@@ -3,6 +3,31 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-12: Workers, and newest drafts first
+
+The posts your Workers write are now readable from the API, MCP and the CLI, and you can save, schedule or dismiss one from there. Workers themselves are still created, edited and run in the SuperX app. Drafts also list newest first now, which fixes pages of old drafts coming back before recent ones.
+
+**API**
+
+- `GET /v1/workers` returns the account's Workers with their voice, topic source, style mode, batch size, schedule, timezone and next run time. Not paginated
+- `GET /v1/workers/suggestions` returns the posts they wrote, newest first: `status` is `to_review` (the default, the app's "To review" queue), `drafted`, `scheduled`, `dismissed` or `all`, with `worker_id`, `limit` (max 100, default 20) and `page`. Each row carries the text, the `worker_id`, the timestamps of whatever has been done with it, and `post_id` once it was saved as a post. An unknown or foreign `worker_id` is a 404 `worker_not_found`
+- `POST /v1/workers/suggestions/{id}/draft` saves one suggestion as a draft and `POST /v1/workers/suggestions/{id}/schedule` queues it for a `scheduled_for` you pass, both answering with the new `post_id`. `POST /v1/workers/suggestions/{id}/dismiss` drops it out of the queue and creates or removes nothing. A suggestion can only be saved once: a second call is a 400 `already_saved`, and one already dismissed is a 400 `already_dismissed`. An id belonging to another account's Worker is a 404 `suggestion_not_found`. The three writes need a key with the write scope and refuse accounts shared with you (403 `writes_main_account_only`)
+- No create, edit or run endpoint for Workers themselves: those stay in the SuperX app
+- `GET /v1/scheduled-posts` now returns drafts most recently updated first, so page 1 is the newest work; walk back with `page`. A `from`/`to` request is still a calendar query, in scheduled-time order
+
+**MCP**
+
+- New tools `list_workers` and `list_worker_suggestions` (read), plus `draft_worker_suggestion`, `schedule_worker_suggestion` and `dismiss_worker_suggestion` (write). Reconnect the server to pick them up
+- `get_scheduled_posts` gained a `page` parameter and returns drafts most recently updated first
+
+**CLI**
+
+- New commands `workers:list`, `workers:suggestions` (`--status`, `--worker`, `--limit`, `--page`), `workers:draft <id>`, `workers:schedule <id> --at` and `workers:dismiss <id>`, all taking `--account`
+
+**Docs**
+
+- New [Agent playbook](/playbooks) "Worker Output Review": read the To review queue, save or queue the good ones, dismiss the rest
+
 ## 2026-09-12: draft_post and linked accounts
 
 No API change. The docs now spell out what `voice: mine` has always done: it writes in the voice of the account you select, not your main account, and it is the one writing helper that refuses an account somebody shared with you.

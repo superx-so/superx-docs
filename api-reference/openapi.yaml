@@ -76,6 +76,21 @@ tags:
       credits, measured from the models' real cost, and spend no live-data
       allowance.
   - name: Media
+  - name: Workers
+    description: |
+      The posts the account's Workers have written, and the three things a
+      person does with one: save it as a draft, schedule it, or dismiss it.
+
+      A Worker is a scheduled AI writer set up in the SuperX app. Creating,
+      editing and running one stays in the app, so there is no create or run
+      endpoint here. What a run produces lands in the app's "To review" queue
+      and is read with `GET /v1/workers/suggestions`.
+
+      NOTHING HERE POSTS TO X. Drafting or scheduling a suggestion writes a
+      post the user can see in the app and on `GET /v1/scheduled-posts`,
+      exactly like the app's own buttons. AI output must be reviewed and
+      meaningfully edited by a person before it goes out, so show the text to
+      the user and confirm the time before you schedule anything.
   - name: Scheduling
   - name: Tags
   - name: Context
@@ -4015,11 +4030,363 @@ paths:
                   code: media_not_configured
                   message: "Media storage is not configured on this server. Try again later."
 
+  /v1/workers:
+    get:
+      tags: [Workers]
+      operationId: listWorkers
+      summary: List Workers
+      description: |
+        The account's Workers, newest first: the scheduled AI writers set up
+        in the SuperX app, each with its voice, topic source, batch size,
+        schedule and next run time.
+
+        Read what they wrote with `GET /v1/workers/suggestions`. Workers are
+        created, edited and run in the app, so there is no create or run
+        endpoint here. Not paginated: how many Workers an account can hold is
+        capped by its plan.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200":
+          description: The account's Workers, created_at descending.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Worker" }
+              example:
+                data:
+                  - id: 12
+                    name: "Daily build in public"
+                    status: "active"
+                    voice_source: "my_voice"
+                    voice_creator: null
+                    topic_source: "product"
+                    topic_config: { product_id: "aB3xWnA0kLpR7sVtYu3zc" }
+                    style_instructions: null
+                    use_account_rules: 1
+                    format_collection: null
+                    style_mode: "one_shot"
+                    batch_size: 3
+                    output_mode: "suggest"
+                    schedule: "daily"
+                    schedule_time: "09:00"
+                    schedule_day: null
+                    timezone: "Europe/London"
+                    next_run_at: "2026-09-13T08:00:00.000Z"
+                    created_at: "2026-08-01T10:00:00.000Z"
+                    updated_at: "2026-09-01T10:00:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/AccountNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/workers/suggestions:
+    get:
+      tags: [Workers]
+      operationId: listWorkerSuggestions
+      summary: List Worker suggestions
+      description: |
+        The posts the account's Workers wrote, newest first. The default
+        `status=to_review` is the app's "To review" queue: suggestions nobody
+        has drafted, scheduled or dismissed yet.
+
+        Each row carries the text, the Worker that wrote it, the timestamps of
+        whatever has been done with it, and `post_id` once it was saved as a
+        post (join it to `GET /v1/scheduled-posts`). `reference` says what kind
+        of source the Worker wrote from; the Worker's own collection and
+        reference ids stay private.
+
+        Reading changes nothing and spends no AI credits. Act on a row with the
+        draft, schedule or dismiss endpoints below.
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - name: status
+          in: query
+          description: to_review (default) = waiting on a person; drafted, scheduled and dismissed = already acted on; all = every suggestion. A dismissed suggestion reads as dismissed even if it was saved first.
+          schema:
+            type: string
+            enum: [to_review, drafted, scheduled, dismissed, all]
+            default: to_review
+        - name: worker_id
+          in: query
+          description: Narrow to one Worker by its numeric id (from `GET /v1/workers`). An unknown or foreign id returns 404 `worker_not_found`.
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: A page of suggestions, generated_at descending.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkerSuggestion" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+              example:
+                data:
+                  - id: 4821
+                    worker_id: 12
+                    text: "Three things we changed after watching ten people use the onboarding."
+                    status: "to_review"
+                    reference: { source: "collection" }
+                    generated_at: "2026-09-12T08:00:00.000Z"
+                    drafted_at: null
+                    scheduled_at: null
+                    dismissed_at: null
+                    post_id: null
+                  - id: 4818
+                    worker_id: 12
+                    text: "The onboarding rewrite doubled activation. Here is what we cut."
+                    status: "drafted"
+                    reference: null
+                    generated_at: "2026-09-11T08:00:00.000Z"
+                    drafted_at: "2026-09-11T09:14:00.000Z"
+                    scheduled_at: null
+                    dismissed_at: null
+                    post_id: "V1StGXR8_Z5jdHi6B-myT"
+                pagination: { page: 1, limit: 20, has_more: false, total: 2 }
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SubscriptionRequired" }
+        "404": { $ref: "#/components/responses/WorkerNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AccountsUnavailable" }
+
+  /v1/workers/suggestions/{id}/draft:
+    post:
+      tags: [Workers]
+      operationId: draftWorkerSuggestion
+      summary: Save a suggestion as a draft
+      description: |
+        Turn one Worker suggestion into a DRAFT post. Nothing is posted to X:
+        the draft shows up in the user's Drafts in the app and at the top of
+        `GET /v1/scheduled-posts?status=draft`, and the response gives you its
+        `post_id` directly.
+
+        The text is saved exactly as the Worker wrote it. To change the wording
+        first, rewrite it with `POST /v1/posts/remix` or
+        `POST /v1/tools/rephrase`, save your version with
+        `POST /v1/scheduled-posts`, then dismiss the original.
+
+        One suggestion can only be saved once: a second draft or schedule call
+        on the same id returns 400 `already_saved`, and a dismissed one returns
+        400 `already_dismissed`. Naturally one-shot, so there is no
+        `Idempotency-Key` support. Works for your main account or any account
+        linked to it (`account_id`); accounts shared with you are read-only.
+      parameters:
+        - $ref: "#/components/parameters/SuggestionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              account_id: "1178367350552305665"
+      responses:
+        "200":
+          description: The suggestion and the draft it became.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/WorkerSuggestionDrafted" }
+              example:
+                data:
+                  id: 4821
+                  post_id: "V1StGXR8_Z5jdHi6B-myT"
+                  drafted_at: "2026-09-12T09:14:00.000Z"
+        "400": { $ref: "#/components/responses/SuggestionNotActionable" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/SuggestionNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/workers/suggestions/{id}/schedule:
+    post:
+      tags: [Workers]
+      operationId: scheduleWorkerSuggestion
+      summary: Schedule a suggestion
+      description: |
+        Turn one Worker suggestion into a SCHEDULED post. The SuperX scheduler
+        posts it at `scheduled_for`, the same as any other queued post, so
+        confirm the time and the text with the user before you call this.
+
+        Afterwards it is an ordinary scheduled post: retime it with
+        `PATCH /v1/scheduled-posts/{id}` or cancel it with
+        `DELETE /v1/scheduled-posts/{id}`, using the `post_id` in the response.
+
+        A Worker post never inherits the account's Default Post Settings, only
+        what you send here. One suggestion can only be saved once: a second
+        call returns 400 `already_saved`, a dismissed one 400
+        `already_dismissed`. Naturally one-shot, so there is no
+        `Idempotency-Key` support. Works for your main account or any account
+        linked to it (`account_id`); accounts shared with you are read-only.
+      parameters:
+        - $ref: "#/components/parameters/SuggestionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduled_for]
+              properties:
+                scheduled_for:
+                  type: string
+                  format: date-time
+                  description: When to post it. UTC ISO-8601 with an explicit Z or offset, at least 60 seconds in the future.
+                autoRetweet:
+                  type: object
+                  nullable: true
+                  description: Auto Retweet settings for this post, in the composer's own shape. Omit to leave it off.
+                autoPlug:
+                  type: object
+                  nullable: true
+                  description: Auto Plug settings for this post, in the composer's own shape. Omit to leave it off.
+                autoDelete:
+                  type: object
+                  nullable: true
+                  description: Auto Delete settings for this post, in the composer's own shape. Omit to leave it off.
+                enablePostingTwitter:
+                  type: boolean
+                  description: Post it to X. Omit to leave the account's own behaviour unchanged.
+                enablePostingBsky:
+                  type: boolean
+                  description: Also cross-post it to Bluesky. Omit to leave the account's own behaviour unchanged.
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              scheduled_for: "2026-09-15T14:00:00Z"
+      responses:
+        "200":
+          description: The suggestion and the scheduled post it became.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/WorkerSuggestionScheduled" }
+              example:
+                data:
+                  id: 4821
+                  post_id: "V1StGXR8_Z5jdHi6B-myT"
+                  scheduled_at: "2026-09-12T09:14:00.000Z"
+                  scheduled_for: "2026-09-15T14:00:00.000Z"
+        "400": { $ref: "#/components/responses/SuggestionNotActionable" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/SuggestionNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
+  /v1/workers/suggestions/{id}/dismiss:
+    post:
+      tags: [Workers]
+      operationId: dismissWorkerSuggestion
+      summary: Dismiss a suggestion
+      description: |
+        Drop one Worker suggestion out of the "To review" queue. No post is
+        created and no post is removed: a suggestion already saved as a draft
+        or a scheduled post keeps that post, which you delete separately with
+        `DELETE /v1/scheduled-posts/{id}` if that is what the user wants.
+
+        Dismissing is allowed on any suggestion the account owns, including one
+        already saved, and it still reads back under
+        `GET /v1/workers/suggestions?status=dismissed`. Naturally idempotent in
+        effect, so there is no `Idempotency-Key` support. Works for your main
+        account or any account linked to it (`account_id`); accounts shared
+        with you are read-only.
+      parameters:
+        - $ref: "#/components/parameters/SuggestionId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id:
+                  type: string
+                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+            example:
+              account_id: "1178367350552305665"
+      responses:
+        "200":
+          description: The dismissed suggestion.
+          headers:
+            X-RateLimit-Limit: { $ref: "#/components/headers/X-RateLimit-Limit" }
+            X-RateLimit-Remaining: { $ref: "#/components/headers/X-RateLimit-Remaining" }
+            X-RateLimit-Reset: { $ref: "#/components/headers/X-RateLimit-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/WorkerSuggestionDismissed" }
+              example:
+                data:
+                  id: 4821
+                  dismissed_at: "2026-09-12T09:20:00.000Z"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "404": { $ref: "#/components/responses/SuggestionNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503": { $ref: "#/components/responses/UpstreamUnavailable" }
+
   /v1/scheduled-posts:
     get:
       tags: [Scheduling]
       operationId: listScheduledPosts
       summary: List drafts and scheduled posts
+      description: |
+        The account's drafts and scheduled posts, most recently updated first,
+        so page 1 is the newest work. Use `page` to walk back through older
+        ones rather than raising `limit`. That ordering covers every `status`,
+        not just drafts: scheduled and sent posts come back most recently
+        updated first too.
+
+        A `from` or `to` filter makes this a calendar query instead: those
+        results come back in post-time order, oldest first, whatever the
+        status.
       parameters:
         - $ref: "#/components/parameters/AccountId"
         - name: status
@@ -8453,6 +8820,14 @@ components:
       schema:
         type: string
         pattern: "^[A-Za-z0-9_-]{1,64}$"
+    SuggestionId:
+      name: id
+      in: path
+      required: true
+      description: The suggestion's numeric id, from `GET /v1/workers/suggestions`.
+      schema:
+        type: integer
+        minimum: 1
 
   schemas:
     ErrorEnvelope:
@@ -10490,6 +10865,171 @@ components:
               nullable: true
               description: Null when the mention is not a reply, or the parent could not be fetched.
 
+    Worker:
+      type: object
+      description: A scheduled AI writer set up in the SuperX app. Read-only here.
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          description: active or paused.
+        voice_source:
+          type: string
+          enum: [my_voice, creator_style, hybrid]
+          description: Whose voice the Worker writes in.
+        voice_creator:
+          type: object
+          nullable: true
+          description: The creator whose style is being borrowed, when voice_source is creator_style or hybrid.
+        topic_source:
+          type: string
+          enum: [product, custom, niche_trending, for_you]
+          description: Where the Worker gets what to write about.
+        topic_config:
+          type: object
+          description: The topic settings behind topic_source, for example the product it writes about or the custom topic text.
+        style_instructions:
+          type: string
+          nullable: true
+          description: Per-Worker writing instructions, applied after the account's own rules.
+        use_account_rules:
+          type: integer
+          enum: [0, 1]
+          description: 1 when the account's SuperX rules apply to this Worker as well.
+        format_collection:
+          type: string
+          nullable: true
+          description: The post-format collection the Worker writes to, when one is pinned.
+        style_mode:
+          type: string
+          enum: [one_shot, reference_remix]
+          description: one_shot writes fresh; reference_remix mirrors the shape of a real high-performing post.
+        batch_size:
+          type: integer
+          description: Posts produced per run.
+        output_mode:
+          type: string
+          enum: [suggest, auto_draft]
+          description: suggest leaves the run in "To review"; auto_draft saves each post as a draft straight away.
+        schedule:
+          type: string
+          enum: [manual, daily, weekly]
+        schedule_time:
+          type: string
+          nullable: true
+          description: "Run time as HH:mm in the Worker's timezone."
+        schedule_day:
+          type: integer
+          nullable: true
+          description: Day of week for a weekly Worker, 0 = Sunday.
+        timezone:
+          type: string
+          nullable: true
+        next_run_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    WorkerSuggestion:
+      type: object
+      description: One post a Worker wrote, waiting for a person to act on it.
+      properties:
+        id:
+          type: integer
+          description: Pass this to the draft, schedule and dismiss endpoints.
+        worker_id:
+          type: integer
+          description: The Worker that wrote it; joins to `GET /v1/workers`.
+        text:
+          type: string
+        status:
+          type: string
+          enum: [to_review, drafted, scheduled, dismissed]
+          description: A dismissed suggestion reads as dismissed even if it was saved first.
+        reference:
+          type: object
+          nullable: true
+          description: What kind of source the Worker wrote from. The collection and reference ids stay private.
+          properties:
+            source:
+              type: string
+              enum: [collection, search]
+              description: collection = a saved post-format collection, search = a high-performing post the run found. Null `reference` means the Worker wrote without one.
+        generated_at:
+          type: string
+          format: date-time
+          nullable: true
+        drafted_at:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When it was saved as a scheduled post, not when it goes out.
+        dismissed_at:
+          type: string
+          format: date-time
+          nullable: true
+        post_id:
+          type: string
+          nullable: true
+          description: The post it was saved as, once drafted or scheduled. Joins to `GET /v1/scheduled-posts`.
+
+    WorkerSuggestionDrafted:
+      type: object
+      properties:
+        id:
+          type: integer
+        post_id:
+          type: string
+          description: The new draft; read or edit it at `/v1/scheduled-posts`.
+        drafted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    WorkerSuggestionScheduled:
+      type: object
+      properties:
+        id:
+          type: integer
+        post_id:
+          type: string
+          description: The new scheduled post; retime or cancel it at `/v1/scheduled-posts/{id}`.
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the suggestion was queued.
+        scheduled_for:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the post goes out.
+
+    WorkerSuggestionDismissed:
+      type: object
+      properties:
+        id:
+          type: integer
+        dismissed_at:
+          type: string
+          format: date-time
+          nullable: true
+
     ScheduledPost:
       type: object
       properties:
@@ -11204,6 +11744,41 @@ components:
             error:
               code: not_found
               message: "No product with that id belongs to this account."
+
+    WorkerNotFound:
+      description: The worker_id is not one of your Workers (`worker_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: worker_not_found
+              message: "No worker with that worker_id belongs to this account."
+
+    SuggestionNotFound:
+      description: No Worker suggestion with that id belongs to this account (`suggestion_not_found`), or account_id is not one of your accounts (`account_not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: suggestion_not_found
+              message: "No worker suggestion with that id belongs to this account."
+
+    SuggestionNotActionable:
+      description: >-
+        The suggestion was already saved as a draft or a scheduled post
+        (`already_saved`), it was dismissed (`already_dismissed`), or a
+        parameter is missing or malformed (`invalid_parameter`, including a
+        `scheduled_for` that is not UTC ISO-8601 or is less than 60 seconds
+        away).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+          example:
+            error:
+              code: already_saved
+              message: "This suggestion was already saved as a post."
 
     AgentNotFound:
       description: The agent_id is not one of your signal agents (`agent_not_found`), or account_id is not one of your accounts (`account_not_found`).

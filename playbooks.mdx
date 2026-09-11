@@ -1,12 +1,12 @@
 ---
 title: "Agent playbooks"
-description: "Twenty-eight goal-shaped recipes, one per SuperX skill, each with its CLI chain, its MCP tool chain, and the point where it hands back to a person."
+description: "Twenty-nine goal-shaped recipes, one per SuperX skill, each with its CLI chain, its MCP tool chain, and the point where it hands back to a person."
 ---
 
 Every SuperX skill in the app has a matching recipe here. Pick the one that
 matches the goal, run the chain in order with the [CLI](/cli) or the
 [MCP server](/mcp-server), and hand the result to a person. Three rules hold in
-all twenty-eight: a post is a DRAFT unless someone asked for it to be scheduled
+all twenty-nine: a post is a DRAFT unless someone asked for it to be scheduled
 (`scheduled:create` without `--at` publishes nothing); nothing here sends a
 reply or delivers a DM, because reply drafts are text a person posts and
 `dm:campaign` only ENQUEUES for the SuperX app to send; and `posts:publish` and
@@ -197,6 +197,23 @@ superx inspiration:search "<topic phrase>" --since "$SINCE" --sort likes --limit
 MCP: `find_inspiration`.
 
 Run it once per topic phrase rather than sweeping the whole niche. Reads only, no AI credits.
+
+### Worker Output Review
+
+The posts a Worker wrote while you were away, triaged: save the good ones, queue one, clear the rest.
+
+```bash
+superx workers:list
+superx workers:suggestions --status to_review --limit 20
+superx workers:draft <suggestion-id>
+superx workers:schedule <suggestion-id> --at "<UTC ISO-8601 with Z>"
+superx workers:dismiss <suggestion-id>
+superx scheduled:list --status draft --limit 10
+```
+
+MCP: `list_workers`, `list_worker_suggestions`, `draft_worker_suggestion`, `schedule_worker_suggestion`, `dismiss_worker_suggestion`, `get_scheduled_posts`.
+
+Workers are created, edited and RUN in the SuperX app: this chain only reads what they produced and acts on it. Show the person each suggestion and let them pick before you save or queue anything, because the text is saved exactly as the Worker wrote it; to change the wording, run it through `posts:remix` and save your version with `scheduled:create`, then dismiss the original. A suggestion can only be saved once, so a second draft or schedule call on the same id is a 400. On the REST API the same chain is `GET /v1/workers/suggestions`, then `POST /v1/workers/suggestions/{id}/draft`, `/schedule` or `/dismiss`. Reads and the three actions cost no AI credits.
 
 ## Queue
 

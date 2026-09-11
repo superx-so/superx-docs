@@ -90,6 +90,11 @@ The credentials file takes priority over the environment variable when both exis
 | `superx signals:pause-agent <id>` | Pause a signal agent (it stops finding leads until resumed) |
 | `superx signals:resume-agent <id>` | Resume a paused signal agent |
 | `superx signals:delete-agent <id>` | Delete a signal agent (its saved leads and contact list stay untouched) |
+| `superx workers:list` | List your Workers (the scheduled AI writers set up in the SuperX app) with their schedules and next run times |
+| `superx workers:suggestions` | List the posts your Workers wrote, newest first (`--status to_review` default, or `drafted`/`scheduled`/`dismissed`/`all`; `--worker <id>`, `--limit`, `--page`) |
+| `superx workers:draft <id>` | Save one Worker suggestion as a draft; the id comes from `workers:suggestions` |
+| `superx workers:schedule <id>` | Schedule one Worker suggestion (`--at` UTC ISO-8601 required); it posts at that time like any queued post |
+| `superx workers:dismiss <id>` | Drop one Worker suggestion out of the To review list (no post is created or removed) |
 | `superx media:upload <file>` | Upload a local image (JPG, PNG, WEBP, GIF) and print its `object_key` for `--media` |
 | `superx scheduled:list` | List drafts and the scheduled queue (`--tags` filters by tag ids) |
 | `superx scheduled:create` | Create a draft (no `--at`) or scheduled post; repeat `--part` for a thread; `--media`/`--alt-text` attach images; `--title`, `--scratchpad`, `--tag` add organizer fields; advanced settings via `--auto-retweet`, `--auto-delete`, `--auto-plug`, `--auto-dm-message`, `--super-followers` |
@@ -151,7 +156,9 @@ Datasets are created in the SuperX app (Ask) for now; the CLI reads them. `datas
 
 The `x:*` commands read X live rather than SuperX's stored data. They cost the tighter enrichment allowance (1 unit each, 3 for `x:replies`, 2 for `x:post --quotes` or an `x:user-posts` handle SuperX has never seen) and share an allowance of 300 live lookups a day with Ask SuperX in the app; over it is a `lookup_quota_exceeded` error that resets at midnight UTC. Repeat lookups within 15 minutes may come from a server-side cache. `x:replies` samples the best-liked replies from up to 3 pages, so it is not the full reply list. `inspiration:media` costs no enrichment and is not personalised: with no query it browses the newest media. It returns no media file URLs; `source_url` opens the original post on its own platform. It has no pagination, returning at most 120 items per query, so ask for `--limit 120` and filter locally rather than calling it repeatedly. `--content-type` is a free-text label as stored in the index, with no list to choose from: a label the index does not use returns zero items and still counts against the daily search cap.
 
-Note that drafts have no scheduled time, so `--from`/`--to` filters on `scheduled:list` exclude drafts; use `--status draft` to list them.
+Note that drafts have no scheduled time, so `--from`/`--to` filters on `scheduled:list` exclude drafts; use `--status draft` to list them. `scheduled:list` returns the most recently updated first, so page 1 is the newest work; walk back with `--page` rather than raising `--limit`. A `--from`/`--to` request is a calendar query instead and comes back in scheduled-time order, oldest first.
+
+Workers are the scheduled AI writers set up in the SuperX app, and each run drops a batch of posts into the app's To review queue. `workers:list` reads the Workers and `workers:suggestions` reads what they wrote. Creating, editing and RUNNING a Worker stays in the app, so the CLI has no command for any of those. `workers:draft` saves one suggestion to Drafts, `workers:schedule --at` queues it, and `workers:dismiss` clears it out of To review without touching any post. The text is saved exactly as the Worker wrote it, so show it to the person first: to change the wording, rewrite it with `posts:remix` or `tools:rephrase`, save your version with `scheduled:create`, and dismiss the original. A suggestion can only be saved once (a second call is a 400 `already_saved`, a dismissed one `already_dismissed`), and the response carries the new `post_id`, which from then on is an ordinary post for `scheduled:list`, `scheduled:update` and `scheduled:delete`.
 
 To post an image: `superx media:upload ./chart.png` prints an `object_key`, then `superx scheduled:create --text "..." --media "<object_key>" --alt-text "..."` attaches it (comma-list up to 4 image keys, or exactly 1 GIF). For threads with media, pass the full parts array as JSON via `--parts-json`. Images are capped at 5MB (GIF 15MB) and 100 uploads per day.
 
@@ -197,4 +204,4 @@ npx skills add superx-so/superx-agent
 
 The skill teaches the agent the full workflow (check auth, read analytics and contacts, create drafts, verify) and ships with `PLAYBOOK.md`, a distilled SuperX growth strategy the agent follows when deciding what and when to post.
 
-It also ships with `PLAYBOOKS.md`, the 28 goal-shaped recipes documented on [Agent playbooks](/playbooks): each one gives the command chain for a named SuperX skill, the matching MCP tools, and the point where the agent hands back to a person.
+It also ships with `PLAYBOOKS.md`, the 29 goal-shaped recipes documented on [Agent playbooks](/playbooks): each one gives the command chain for a named SuperX skill, the matching MCP tools, and the point where the agent hands back to a person.
