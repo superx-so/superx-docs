@@ -44,7 +44,7 @@ The credentials file takes priority over the environment variable when both exis
 | `superx accounts` | List the X accounts this key can read (main account first) |
 | `superx posts:list` | List published posts with engagement metrics |
 | `superx posts:analytics` | Account analytics: totals, daily series, follower change (default: last 30 days) |
-| `superx posts:draft` | Write post drafts in your voice from a `--brief` (`--count` 1-3, `--voice mine`, `creator` or `hybrid` with `--creator`, `--mirror` the text of a proven post to copy the shape of, `--collection`, `--instructions`); nothing is scheduled and each draft costs AI credits |
+| `superx posts:draft` | Write post drafts in your voice from a `--brief` (`--count` 1-3, `--voice mine`, `creator` or `hybrid` with `--creator`, `--mirror` the text of a proven post to copy the shape of, `--collection`, `--instructions`); nothing is scheduled and each draft costs AI credits (`--account` picks which of your accounts to draft as; `--voice mine` is that account's own voice) |
 | `superx posts:remix` | Rewrite a post in your voice (`--text`, `--closeness` 0-100 required; `--instructions`). Returns text only, nothing is posted |
 | `superx engage:reply-draft` | Draft ONE reply to a post (`--post <id>` reads it live, or `--text` with `--author` / `--handle`; `--thoughts`, `--tone`). Text only: a person posts it |
 | `superx tools:inline-edit` | Edit one selected piece of a post (`--text` required, `--full` for the surrounding post, `--instruction` and/or `--type`) |

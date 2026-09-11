@@ -3,6 +3,16 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-12: draft_post and linked accounts
+
+No API change. The docs now spell out what `voice: mine` has always done: it writes in the voice of the account you select, not your main account, and it is the one writing helper that refuses an account somebody shared with you.
+
+**Docs**
+
+- `POST /v1/posts/draft`: `voice: mine` writes as the account in `account_id`, from that account's own posts, style guide and rules. Omit `account_id` and that is your main account. The `voice` and `account_id` field descriptions now say the same
+- The [MCP server](/mcp-server) page drops `draft_post` from the list of credit-spending tools that accept a shared account: it prepares the account's own style guide when needed, so a shared account returns `writes_main_account_only`. `draft_reply`, `remix_post`, `inline_edit`, `rephrase_text`, `fact_check`, `predict_algorithm` and `search_leads` still work on one
+- The [CLI](/cli) page notes that `--account` picks which of your accounts `posts:draft` writes as, and that `--voice mine` is that account's own voice
+
 ## 2026-09-11: Agent playbooks
 
 Every skill in Ask SuperX now has a documented CLI and MCP recipe. No API change: this is documentation over the endpoints that already shipped.

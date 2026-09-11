@@ -346,9 +346,11 @@ paths:
         works well), or leave `mirror` out and a proven shape is picked for
         you, optionally biased toward a `collection`.
 
-        Voice: `mine` (default) writes as the account, `creator` writes in a
-        creator's style, and `hybrid` keeps the account's substance with the
-        creator's flavor. The creator's style guide is prepared in the
+        Voice: `mine` (default) writes as the account in `account_id`, from
+        that account's own posts, style guide and rules (your main account
+        when `account_id` is omitted), `creator` writes in a creator's style,
+        and `hybrid` keeps the account's substance with the creator's flavor.
+        The creator's style guide is prepared in the
         background the first time you name them; that first call returns
         `409 creator_style_pending` and the retry a minute later succeeds.
 
@@ -379,7 +381,7 @@ paths:
                   type: string
                   enum: [mine, creator, hybrid]
                   default: mine
-                  description: Whose voice to write in.
+                  description: "Whose voice to write in. `mine` is the voice of the account in `account_id`: its own posts, style guide and rules. Omit `account_id` and that is your main account."
                 creator:
                   type: string
                   description: X handle to borrow style from, for example `@naval`. Required when `voice` is `creator` or `hybrid`, rejected when `voice` is `mine`.
@@ -397,7 +399,7 @@ paths:
                   description: Extra style instructions for this batch.
                 account_id:
                   type: string
-                  description: Any account you own, meaning your main account (the default when omitted) or one linked to it. An account shared with you returns `403 writes_main_account_only`.
+                  description: "Any account you own, meaning your main account (the default when omitted) or one linked to it. With `voice: mine` the drafts use this account's own posts and style guide. An account shared with you returns `403 writes_main_account_only`."
             examples:
               simple:
                 summary: One draft in your own voice
