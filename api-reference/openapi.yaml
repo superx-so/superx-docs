@@ -2895,6 +2895,16 @@ paths:
         post, so treat `posts_count` as lifetime volume rather than proof of
         current activity.
 
+        **Only recent posts count.** `max_post_age_days` sets the window
+        (1-90, 30 by default): a matching post older than that is skipped and
+        counted in `freshness.stale_skipped`, and every lead carries its
+        post's `posted_at` and `post_age_days`. Leads come back freshest
+        first within each score. An empty `leads` with a `stale_skipped`
+        above 0 means people do post about this, just not inside the window:
+        broaden the keywords, or raise `max_post_age_days` when you want
+        people who are active over a longer stretch rather than a fresh pain
+        point.
+
         **Cost.** Reading X live costs AI credits, measured from what the
         search actually spends: at least 1 credit for any search that reaches
         X, typically 1-2. It also uses one of the plan's daily lead searches
@@ -2921,6 +2931,7 @@ paths:
               icp_description: "Founders of small B2B SaaS companies who are worried about retention and would try a churn-reduction tool."
               precision: discovery
               max_leads: 10
+              max_post_age_days: 7
       responses:
         "200":
           description: |
@@ -2943,10 +2954,15 @@ paths:
                   query_used: "(\"losing customers to churn\" OR \"cancellations killing my MRR\") -filter:replies -filter:retweets"
                   query_source: compiled
                   precision: discovery
-                  requests_used: 5
-                  posts_scanned: 87
-                  candidates_scored: 30
+                  requests_used: 2
+                  posts_scanned: 40
+                  candidates_scored: 18
                   credits_charged: 1
+                  freshness:
+                    max_post_age_days: 7
+                    posts_in_window: 31
+                    stale_skipped: 4
+                    oldest_skipped_days: 212
                   leads:
                     - user:
                         x_user_id: "1178367350552305665"
@@ -2959,8 +2975,11 @@ paths:
                       icp_rationale: "Runs a small B2B SaaS and is actively complaining about cancellations."
                       provenance:
                         action: authored
+                        tweet_id: "1969318805251100000"
                         tweet_text: "third cancellation this week and I still cannot tell why they left"
                         target_handle: null
+                        posted_at: "2026-09-12T08:41:07.000Z"
+                        post_age_days: 2
                 note: "Nothing was saved: this search creates no signal agent and stores no leads."
         "400": { $ref: "#/components/responses/InvalidParameter" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -9781,6 +9800,13 @@ components:
             target_handle:
               type: string
               nullable: true
+            posted_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: >-
+                When the matched post was written, decoded from `tweet_id`;
+                null for follower/list watches and reposts.
 
     SignalInput:
       type: object
@@ -10074,6 +10100,16 @@ components:
           minimum: 1
           maximum: 30
           default: 10
+        max_post_age_days:
+          type: integer
+          minimum: 1
+          maximum: 90
+          default: 30
+          description: |
+            Only posts written within the last N days count. Older matching
+            posts are skipped and counted in `freshness.stale_skipped`. Use 7
+            for a pain point or buying intent worth catching while it is
+            fresh, 1-3 for today, 30 for anyone who is simply active.
         account_id:
           type: string
           description: Which of your accounts to search as. Omit for the main account.
@@ -10118,6 +10154,13 @@ components:
             action:
               type: string
               description: Always "authored" here, meaning they wrote a matching post.
+            tweet_id:
+              type: string
+              nullable: true
+              description: |
+                The matched post's id, as a string, named as it is on stored
+                signal leads. Pass it to the endpoints that take a post id,
+                such as `POST /v1/engage/reply-draft`.
             tweet_text:
               type: string
               nullable: true
@@ -10125,6 +10168,17 @@ components:
             target_handle:
               type: string
               nullable: true
+            posted_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the matched post was written (UTC).
+            post_age_days:
+              type: integer
+              nullable: true
+              description: |
+                How many days ago the matched post was written. Never above
+                the request's `max_post_age_days`.
 
     LeadSearchResult:
       type: object
@@ -10148,6 +10202,26 @@ components:
           type: integer
         credits_charged:
           type: integer
+        freshness:
+          type: object
+          description: The recency window this search ran with, and what it cost in matches.
+          properties:
+            max_post_age_days:
+              type: integer
+              description: The window that was applied, in days.
+            posts_in_window:
+              type: integer
+              description: Matching posts that were inside the window.
+            stale_skipped:
+              type: integer
+              description: |
+                Matching posts that were older than the window and were
+                skipped. Above 0 with no leads means people do post about
+                this, just not lately.
+            oldest_skipped_days:
+              type: integer
+              nullable: true
+              description: Age of the oldest skipped post, in days. null when none were skipped.
         leads:
           type: array
           items: { $ref: "#/components/schemas/LeadSearchLead" }

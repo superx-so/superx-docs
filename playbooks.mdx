@@ -314,12 +314,12 @@ A live search of X now for people matching the audience described, scored, savin
 
 ```bash
 superx signals:suggest-keywords --icp "<who you want to reach>"
-superx signals:search --keywords "<phrase>,<phrase>" --icp "<who you want to reach>" --max 30
+superx signals:search --keywords "<phrase>,<phrase>" --icp "<who you want to reach>" --max 30 --max-age-days 7
 ```
 
 MCP: `suggest_keywords`, `search_leads`.
 
-The search creates no agent and stores no leads, so keep what is needed from that one response. Costs at least 1 AI credit plus one of the plan's daily lead searches, and draws on a fair-use ceiling shared by every account. Takes about a minute.
+The search creates no agent and stores no leads, so keep what is needed from that one response. `--max-age-days` is the recency window (1-90, 30 by default): 7 for a pain point worth catching while it is fresh. Older matches are skipped and counted in `freshness.stale_skipped`. Costs at least 1 AI credit plus one of the plan's daily lead searches, and draws on a fair-use ceiling shared by every account. Takes about a minute.
 
 ### Standing Lead Agent
 

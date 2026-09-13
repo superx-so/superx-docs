@@ -3,6 +3,29 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-14: Lead search only returns recent posts
+
+A live lead search used to reach back years to fill a page, so people whose matching post was months or years old came back looking like fresh leads. Every lead now comes from a post inside a recency window you control, and the leads are ordered freshest first within each score.
+
+**API**
+
+- `POST /v1/signals/leads/search` takes `max_post_age_days` (1-90, 30 by default). A matching post older than the window is skipped rather than returned; 91 or 0 is a `400 invalid_parameter`
+- Each lead's `provenance` gains `posted_at` (when the matched post was written), `post_age_days`, and `tweet_id` (the matched post's id, named as it is on stored signal leads, for the endpoints that take a post id)
+- `data.freshness` reports `max_post_age_days`, `posts_in_window`, `stale_skipped` and `oldest_skipped_days`. An empty `leads` with `stale_skipped` above 0 means people do post about this, just not inside the window: broaden the keywords, or raise the window when you want people active over a longer stretch rather than a fresh pain point
+- Narrow searches usually spend fewer live requests now, because paging stops once a page crosses the window
+
+**MCP**
+
+- `search_leads` takes `max_post_age_days` and returns the same `freshness` block and per-lead post age. Reconnect the server to pick the parameter up
+
+**CLI**
+
+- `signals:search --max-age-days <1-90>`
+
+**Docs**
+
+- The [Agent playbook](/playbooks) "Instant Lead Hunt" and the [MCP server](/mcp-server) page cover the window
+
 ## 2026-09-12: Workers, and newest drafts first
 
 The posts your Workers write are now readable from the API, MCP and the CLI, and you can save, schedule or dismiss one from there. Workers themselves are still created, edited and run in the SuperX app. Drafts also list newest first now, which fixes pages of old drafts coming back before recent ones.
