@@ -2886,9 +2886,18 @@ paths:
         (`POST /v1/signals/agents`) instead, and read what it finds with
         `GET /v1/signals/leads`.
 
-        Keywords are plain language, not search operators: phrases the people
-        you want would actually post, comma-separated (or as a list) for
-        alternatives. `precision: high` keeps only confident matches;
+        **It plans, then searches.** From `offer`, `icp_description` and your
+        seed angles, a model writes up to 10 short queries across the angles
+        that find buyers (the buyer's working day, their pains, the tools they
+        already pay for, adjacent roles), runs them all, and scores everyone it
+        finds. `queries_used` says how many reached X, `query_plan` shows each
+        query with its angle and what it contributed, and `partial` is true
+        when a time budget cut the run short.
+
+        So `keywords` are seed ANGLES, not the query: 2-5 short phrases of how
+        the BUYER talks on a normal working day, not the product's own name and
+        not a full sentence. `offer` is optional but it is the strongest input
+        you can give. `precision: high` keeps only confident matches;
         `discovery` (the default) also returns adjacent ones.
 
         The search takes up to a minute. Each lead comes from ONE matched
@@ -2927,8 +2936,9 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/LeadSearchRequest" }
             example:
-              keywords: "losing customers to churn, cancellations killing my MRR"
+              keywords: "cancelled today, mrr dropped, renewal call, churn rate"
               icp_description: "Founders of small B2B SaaS companies who are worried about retention and would try a churn-reduction tool."
+              offer: "ChurnRadar, retention analytics that flags the accounts about to cancel."
               precision: discovery
               max_leads: 10
               max_post_age_days: 7
@@ -2951,13 +2961,24 @@ paths:
                     type: string
               example:
                 data:
-                  query_used: "(\"losing customers to churn\" OR \"cancellations killing my MRR\") -filter:replies -filter:retweets"
-                  query_source: compiled
+                  query_used: "(\"cancelled today\" OR \"they churned\" OR \"lost a customer\") (saas OR mrr OR retention) lang:en -filter:replies -filter:retweets"
+                  query_source: planned
+                  queries_used: 10
+                  query_plan:
+                    - query: "(\"cancelled today\" OR \"they churned\" OR \"lost a customer\") (saas OR mrr OR retention) lang:en -filter:replies -filter:retweets"
+                      angle: workflow
+                      posts_in_window: 24
+                      candidates: 11
+                    - query: "(churnzero OR chartmogul OR baremetrics) (churn OR retention OR mrr) lang:en -filter:replies -filter:retweets"
+                      angle: competitor
+                      posts_in_window: 9
+                      candidates: 4
+                  partial: false
                   precision: discovery
-                  requests_used: 2
-                  posts_scanned: 40
-                  candidates_scored: 18
-                  credits_charged: 1
+                  requests_used: 12
+                  posts_scanned: 194
+                  candidates_scored: 60
+                  credits_charged: 2
                   freshness:
                     max_post_age_days: 7
                     posts_in_window: 31
@@ -10080,9 +10101,12 @@ components:
               items:
                 type: string
           description: |
-            Plain-language phrases these people would post, as one
-            comma-separated string or a list of strings (a list is joined with
-            commas). 3-300 characters in total. No search operators.
+            Seed ANGLES for the search plan, not the query itself: 2-5 short
+            phrases (2-3 words each) of how the BUYER talks on a normal working
+            day, their workflows, the tools they already pay for, their jargon,
+            a specific symptom. One comma-separated string or a list of strings
+            (a list is joined with commas), 3-300 characters in total. Never the
+            product's own name, never a full sentence, no search operators.
         icp_description:
           type: string
           minLength: 3
@@ -10090,6 +10114,16 @@ components:
           description: |
             Who counts as a good lead, in one or two sentences: role, domain,
             and the buying intent or pain that qualifies them.
+        offer:
+          type: string
+          minLength: 3
+          maxLength: 300
+          description: |
+            What you are selling, in one sentence: the product or service and
+            what it does. Optional, and the single strongest input: the search
+            plan is written from it, so a search with an `offer` finds people
+            talking about the problem rather than only people naming the
+            product.
         precision:
           type: string
           enum: [high, discovery]
@@ -10185,11 +10219,43 @@ components:
       properties:
         query_used:
           type: string
-          description: The search actually run against X.
+          description: |
+            The first query of the plan, kept for callers that read a single
+            query. Read `query_plan` for everything that ran.
         query_source:
           type: string
-          enum: [compiled, keywords]
-          description: compiled = your phrases were turned into a query by a model; keywords = the deterministic fallback.
+          enum: [planned, compiled, keywords]
+          description: |
+            planned = a model wrote the search plan from your offer, ICP and
+            seed angles; keywords = the deterministic fallback, one query per
+            seed phrase. compiled is the retired single-query path.
+        queries_used:
+          type: integer
+          description: How many of the planned queries actually reached X.
+        query_plan:
+          type: array
+          description: |
+            Every planned query, its angle, and what it brought back. Angles are
+            workflow, pain, competitor and adjacent for a planned search, and
+            keywords for the fallback.
+          items:
+            type: object
+            properties:
+              query:
+                type: string
+              angle:
+                type: string
+              posts_in_window:
+                type: integer
+                description: Matching posts this query found inside the recency window.
+              candidates:
+                type: integer
+                description: People this query contributed to the scored pool.
+        partial:
+          type: boolean
+          description: |
+            True when a time or request budget cut the search short, so the
+            plan was not run to the end. The leads returned are still real.
         precision:
           type: string
           enum: [high, discovery]
