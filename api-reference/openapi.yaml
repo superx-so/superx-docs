@@ -838,7 +838,7 @@ paths:
         **It compares a draft with the account's normal post.** It is not a
         reach prediction, and it knows nothing about follower count. Present
         it that way: `accuracy.line` carries the measured held-out figure to
-        quote, and it is right about seven times in ten.
+        quote, and it is right about two times in three.
 
         `reposts_and_quotes` and `views` come back with `confidence: "low"`:
         text says much less about those than about likes and replies.
@@ -944,12 +944,14 @@ paths:
                       effect: -0.0914
                   warnings: []
                   accuracy:
-                    pair_accuracy: 0.6615
+                    pair_accuracy: 0.6516
                     posts: 9481
                     authors: 214
-                    line: "Picks the better of two posts by the same account 66% of the time on 9,481 held-out posts from 214 accounts"
+                    pairs: 4225
+                    creators: 207
+                    line: "Picks the better of two posts by the same account 65% of the time, cross-validated by creator on 4,225 pairs from 207 creators; no sealed test set yet."
                   engine:
-                    generated: "2026-09-17T16:11:54.507Z"
+                    generated: "2026-09-17T19:07:36.538Z"
                     question_set: v1.1
                 meta:
                   credits_charged: 1
