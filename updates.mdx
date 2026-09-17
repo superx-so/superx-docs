@@ -3,6 +3,44 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-18: Agent skills, one folder each
+
+The same recipes used to live under three names in three places, and they had drifted: the agent package said "playbooks", the app said "skills", and the two sets were not even the same 29. There is now one set of 30 skills, each a folder in the [superx-agent](https://github.com/superx-so/superx-agent) repo, and everything else is generated from it.
+
+**Docs**
+
+- New page [Agent skills](/skills), generated from those folders: 30 recipes grouped by the same eight categories the app uses, each with its CLI chain, its MCP tool chain and where the chain stops. It replaces the old Agent playbooks page, and `/playbooks` redirects here
+
+**Skills**
+
+- 30 skills, up from 29 recipes and 29 app cards that were not the same 29. Worker Output Review now has an app card and Find Your Story now has a command chain, so every skill ships both
+- Instant Lead Hunt carries `signals:search --offer` and `--max-age-days`, and says what a hunt costs instead of calling it free. Viral Format Remix says 3 AI credits per draft. Lead Review says your fit or not-fit verdicts are recorded and train the scorer
+
+**CLI**
+
+- `superx skills:list` prints every bundled skill as JSON, and `superx skills:install` puts the skill where your agent looks for it (`~/.claude/skills` and `~/.agents/skills` by default, `--target claude|agents|openclaw|all`, `--project`, `--copy`). `npx skills add superx-so/superx-agent` still works
+
+## 2026-09-18: Viral Score, and algorithm-predict is gone
+
+Scoring a draft used to mean comparing two versions on a model's opinion. The new score compares ONE draft with the account's OWN recent posts, using weights fit on 9,481 real posts from 214 accounts, and says what helped and what hurt in plain English.
+
+**API**
+
+- `POST /v1/posts/viral-score` scores one draft from 0 to 100 against the account's own normal post: `text` (1-4000) plus optional `has_image`, `has_video`, `is_quote`, `post_at` and `baseline` (`account` by default, or `population`). It returns `counters` for likes, replies, reposts+quotes and views (a median multiple of that account's own median post, with `p75`, `p90` and `expected`), `helped` and `hurt` with the feature that moved the score and what it did, `warnings`, and `accuracy` with the measured figure to quote
+- It compares a draft with the account's own posts: it is not a reach prediction and it knows nothing about follower count. `reposts_and_quotes` and `views` come back `confidence: "low"`, because text says much less about those
+- `warnings` name what the score never rewards: asking for replies as the point of the post, inviting people to connect, a structure borrowed from other accounts, and sending readers off the platform. Those can only push a score down, so rewrite rather than work around them
+- The baseline is the account's last originals from the past 90 days, leaving out anything posted in the last 3 days because those numbers are still settling. Under 10 usable posts and `baseline.kind` is `population`, which scores against the average training post and returns `expected: null`
+- Cheap on purpose so drafts can be iterated: most calls charge no credits, one in ten charges 1, and the first call for an account charges 1 more while its baseline is built. The per-day cap is 50 on trial, 300 on pro, 1,000 on advanced and 2,000 on ultra
+- **Removed:** `POST /v1/tools/algorithm-predict`. It scored two versions on a model's opinion and was never measured against real posts
+
+**MCP**
+
+- `predict_viral_score` replaces `predict_algorithm`, with the same fields as the endpoint. Reconnect the server to pick it up
+
+**CLI**
+
+- `superx posts:viral-score --text "..."` (`--image`, `--video`, `--quote`, `--post-at`, `--population`) replaces `superx tools:predict`
+
 ## 2026-09-14: Lead search only returns recent posts
 
 A live lead search used to reach back years to fill a page, so people whose matching post was months or years old came back looking like fresh leads. Every lead now comes from a post inside a recency window you control, and the leads are ordered freshest first within each score.

@@ -30,7 +30,7 @@
           },
           {
             "group": "CLI & Agents",
-            "pages": ["cli", "mcp-server", "playbooks"]
+            "pages": ["cli", "mcp-server", "skills"]
           },
           {
             "group": "Updates",
@@ -44,6 +44,12 @@
       }
     ]
   },
+  "redirects": [
+    {
+      "source": "/playbooks",
+      "destination": "/skills"
+    }
+  ],
   "footerSocials": {
     "x": "https://x.com/superx_so",
     "website": "https://superx.so"
