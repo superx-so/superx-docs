@@ -823,36 +823,59 @@ paths:
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
-  /v1/tools/algorithm-predict:
+  /v1/posts/viral-score:
     post:
       tags: [Tools]
-      operationId: predictAlgorithm
-      summary: Compare two versions of a post
+      operationId: postViralScore
+      summary: Score a draft against this account's own posts
       description: |
-        Scores two versions of a post from 0 to 100 against what the X
-        timeline tends to reward (hook strength, what drives replies and
-        quotes, structure, shareability), and suggests a few short
-        improvements for each.
+        Scores ONE draft from 0 to 100 against the account's OWN recent
+        posts, and says what helped and what hurt in plain English. The
+        counters block gives the multiple to expect on likes, replies,
+        reposts+quotes and views versus that account's own median post,
+        taken from measured calibration bands rather than modelled.
 
-        **The scores are a model's opinion.** They are useful for comparing
-        two drafts against each other, not for predicting real reach, and
-        should be reported that way.
+        **It compares a draft with the account's normal post.** It is not a
+        reach prediction, and it knows nothing about follower count. Present
+        it that way: `accuracy.line` carries the measured held-out figure to
+        quote, and it is right about seven times in ten.
+
+        `reposts_and_quotes` and `views` come back with `confidence: "low"`:
+        text says much less about those than about likes and replies.
+
+        `warnings` name the things the score never rewards, whatever else
+        the draft does: asking for replies as the point of the post,
+        inviting people to connect, a structure borrowed from other
+        accounts, and sending readers off the platform. A warning means
+        rewrite, not work around.
+
+        The baseline is the account's last originals from the past 90 days,
+        leaving out anything posted in the last 3 days because those numbers
+        are still settling.
+
+        Fewer than 10 usable posts and `baseline.kind` comes back `population`,
+        which scores the draft against the average training post and returns
+        `expected: null` on every counter. Pass `baseline: "population"` to
+        ask for that on purpose.
 
         Nothing is posted or scheduled.
 
-        Costs AI credits, measured and typically 1. Spends no live-data
-        allowance. Needs a key with the `write` scope.
+        Cheap on purpose so drafts can be iterated: most calls charge no
+        credits, one in ten charges 1, and the first call for an account
+        charges 1 more while its baseline is built. Each plan has a daily cap
+        on how many scores it can run. Spends no live-data allowance. Needs a
+        key with the `write` scope.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/AlgorithmPredictRequest" }
+            schema: { $ref: "#/components/schemas/ViralScoreRequest" }
             example:
-              version_a: "Most founders think they have a traffic problem. They have a positioning problem."
-              version_b: "you don't have a traffic problem. you have a positioning problem."
+              text: "Most founders think they have a traffic problem. They have a positioning problem."
+              has_image: false
       responses:
         "200":
-          description: A score and improvements for each version.
+          description: The score, the counters, and what helped and hurt.
           headers:
             X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
             X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
@@ -862,24 +885,72 @@ paths:
               schema:
                 type: object
                 properties:
-                  data:
-                    type: object
-                    properties:
-                      version_a: { $ref: "#/components/schemas/AlgorithmPredictVersion" }
-                      version_b: { $ref: "#/components/schemas/AlgorithmPredictVersion" }
+                  data: { $ref: "#/components/schemas/ViralScoreData" }
                   meta: { $ref: "#/components/schemas/ToolMeta" }
               example:
                 data:
-                  version_a:
-                    score: 62
-                    improvements:
-                      - text: "Open with the reversal"
-                        tooltip: "Lead with the surprising half so the first line earns the second."
-                  version_b:
-                    score: 78
-                    improvements:
-                      - text: "Add one concrete example"
-                        tooltip: "A named situation makes the claim land instead of reading as a slogan."
+                  score: 71
+                  beats_own_normal: 0.7134
+                  baseline:
+                    kind: account
+                    posts_used: 34
+                    account_id: "1178367350552305665"
+                  counters:
+                    likes:
+                      multiple: 1.38
+                      p75: 2.69
+                      p90: 6.38
+                      breakout_share: 0.173
+                      probability: 0.7134
+                      confidence: normal
+                      own_median: 42
+                      expected: 58
+                    replies:
+                      multiple: 1.02
+                      p75: 1.83
+                      p90: 4.1
+                      breakout_share: 0.095
+                      probability: 0.58
+                      confidence: normal
+                      own_median: 6
+                      expected: 6
+                    reposts_and_quotes:
+                      multiple: 0.98
+                      p75: 1.7
+                      p90: 3.49
+                      breakout_share: 0.075
+                      probability: 0.51
+                      confidence: low
+                      own_median: 2
+                      expected: 2
+                    views:
+                      multiple: 1.02
+                      p75: 1.83
+                      p90: 4.1
+                      breakout_share: 0.095
+                      probability: 0.56
+                      confidence: low
+                      own_median: 5100
+                      expected: 5202
+                  helped:
+                    - key: k_credential_proof
+                      label: A result of your own backs the point
+                      detail: Backs the point with a result more than usual
+                      effect: 0.1842
+                  hurt:
+                    - key: cov_is_quote
+                      label: It quotes another post
+                      detail: Quotes another post, unlike your usual post
+                      effect: -0.0914
+                  warnings: []
+                  accuracy:
+                    pair_accuracy: 0.6615
+                    posts: 9481
+                    authors: 214
+                    line: "Picks the better of two posts by the same account 66% of the time on 9,481 held-out posts from 214 accounts"
+                  engine:
+                    generated: "2026-09-17T16:11:54.507Z"
+                    question_set: v1.1
                 meta:
                   credits_charged: 1
                   account_id: "1178367350552305665"
@@ -10483,38 +10554,159 @@ components:
               title: { type: string }
               snippet: { type: string }
 
-    AlgorithmPredictRequest:
+    ViralScoreRequest:
       type: object
-      required: [version_a, version_b]
+      required: [text]
       properties:
-        version_a:
+        text:
           type: string
           minLength: 1
           maxLength: 4000
-        version_b:
+          description: The draft to score.
+        has_image:
+          type: boolean
+          description: True when an image would be attached.
+        has_video:
+          type: boolean
+          description: True when a video would be attached.
+        is_quote:
+          type: boolean
+          description: True when the post quotes another post.
+        post_at:
           type: string
-          minLength: 1
-          maxLength: 4000
+          format: date-time
+          description: When it would go out (ISO-8601 with an explicit Z or offset). Defaults to now.
+        baseline:
+          type: string
+          enum: [account, population]
+          description: |
+            `account` (the default) scores against the account's own recent
+            posts; `population` scores against the average training post. An
+            account with too little history falls back to `population`.
         account_id:
           type: string
 
-    AlgorithmPredictVersion:
+    ViralScoreCounter:
+      type: object
+      description: |
+        What to expect on one counter, versus this account's own median post.
+        The multiples are measured out of fold for posts that scored into the
+        same band, not modelled, and the distribution is heavily right
+        skewed: `multiple` is the median and the honest headline, `p75` and
+        `p90` are the spread.
+      properties:
+        multiple:
+          type: number
+          description: Median multiple of the account's own median post.
+        p75:
+          type: number
+        p90:
+          type: number
+        breakout_share:
+          type: number
+          description: Share of posts in this band that broke out for the author.
+        probability:
+          type: number
+          description: Probability this draft beats the account's normal post on this counter.
+        confidence:
+          type: string
+          enum: [normal, low]
+          description: '`low` on reposts+quotes and views: text says much less about those.'
+        own_median:
+          type: number
+          nullable: true
+          description: |
+            The account's own median for this counter, or null on a
+            population baseline. A median over an even number of posts can
+            land on a half, so this is not always a whole number.
+        expected:
+          type: integer
+          nullable: true
+          description: own_median x multiple, or null on a population baseline.
+
+    ViralScoreReason:
+      type: object
+      properties:
+        key:
+          type: string
+          description: The feature id, stable across versions.
+        label:
+          type: string
+          description: What the feature is, in plain English.
+        detail:
+          type: string
+          description: What it did on this draft, versus the account's normal post.
+        effect:
+          type: number
+          description: Signed contribution to the score. Bigger absolute value, bigger effect.
+
+    ViralScoreData:
       type: object
       properties:
         score:
           type: integer
-          description: 0 to 100. A model's opinion, for comparing the two versions against each other.
-        improvements:
+          description: 0 to 100. How this draft compares with the account's own normal post.
+        beats_own_normal:
+          type: number
+          description: The same figure as a probability, to four decimal places.
+        baseline:
+          type: object
+          properties:
+            kind:
+              type: string
+              enum: [account, population]
+            posts_used:
+              type: integer
+              description: How many of the account's own posts the baseline was built from.
+            account_id:
+              type: string
+        counters:
+          type: object
+          properties:
+            likes: { $ref: "#/components/schemas/ViralScoreCounter" }
+            replies: { $ref: "#/components/schemas/ViralScoreCounter" }
+            reposts_and_quotes: { $ref: "#/components/schemas/ViralScoreCounter" }
+            views: { $ref: "#/components/schemas/ViralScoreCounter" }
+        helped:
           type: array
-          items:
-            type: object
-            properties:
-              text:
-                type: string
-                description: The change, in a handful of words.
-              tooltip:
-                type: string
-                description: Why it would help, with an example.
+          description: Up to three things that pushed the score up. Fewer when fewer qualify.
+          items: { $ref: "#/components/schemas/ViralScoreReason" }
+        hurt:
+          type: array
+          description: Up to three things that pushed the score down.
+          items: { $ref: "#/components/schemas/ViralScoreReason" }
+        warnings:
+          type: array
+          description: |
+            What the score never rewards, whatever else the draft does.
+            Rewrite what a warning names rather than working around it.
+          items: { type: string }
+        accuracy:
+          type: object
+          description: The measured accuracy of the engine that produced this score.
+          properties:
+            pair_accuracy: { type: number }
+            posts: { type: integer }
+            authors: { type: integer }
+            pairs:
+              type: integer
+              nullable: true
+              description: Post pairs the accuracy was measured on, null if the engine does not report it.
+            creators:
+              type: integer
+              nullable: true
+              description: Creators those pairs came from, null if the engine does not report it.
+            line:
+              type: string
+              description: The sentence to quote when you show the score.
+        engine:
+          type: object
+          properties:
+            generated:
+              type: string
+              description: When the scoring engine was fit.
+            question_set:
+              type: string
 
     DraftOutreachRequest:
       type: object

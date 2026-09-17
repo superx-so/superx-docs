@@ -76,7 +76,8 @@ Typical costs today:
 | `POST /v1/datasets/{id}/refine` | Measured, roughly 1 per 40 rows with text |
 | `POST /v1/engage/reply-draft` | Measured, typically 2 (the reply write plus the shared post-editor pass). With a `post_id` it also spends one live X lookup |
 | `POST /v1/posts/remix` | Measured, typically 2 |
-| `POST /v1/tools/inline-edit`, `/rephrase`, `/factcheck`, `/algorithm-predict` | Measured, typically 1 each |
+| `POST /v1/tools/inline-edit`, `/rephrase`, `/factcheck` | Measured, typically 1 each |
+| `POST /v1/posts/viral-score` | Flat and cheap: 1 credit per 10 scores, plus 1 the first time an account's baseline is built |
 | `POST /v1/context/style-guide/regenerate` | Free |
 | `POST /v1/context/products/{id}/scrape` | Free |
 | `POST /v1/signals/keywords/suggest`, `/v1/signals/icp/expand`, `/v1/signals/icp/expand-from-url` | Free |
@@ -125,12 +126,13 @@ Some AI actions also carry a per-day count cap per plan, so an unusually cheap r
 | --- | --- | --- | --- | --- | --- |
 | `lead_search` | `POST /v1/signals/leads/search` | 2 | 10 | 25 | 50 |
 | `research_profiles` | `POST /v1/datasets` with `source: "research"` | 10 | 50 | 100 | 250 |
+| `viral_score` | `POST /v1/posts/viral-score` | 50 | 300 | 1,000 | 2,000 |
 | `draft_outreach_dms` | `POST /v1/datasets/{id}/outreach-drafts` | no cap | no cap | no cap | no cap |
 | `refine_dataset` | `POST /v1/datasets/{id}/refine` | no cap | no cap | no cap | no cap |
 | `article_cover` | `POST /v1/articles/{id}/cover` | no cap | no cap | no cap | no cap |
 | `reply_draft` | `POST /v1/engage/reply-draft` | no cap | no cap | no cap | no cap |
 | `remix` | `POST /v1/posts/remix` | no cap | no cap | no cap | no cap |
-| `inline_edit`, `rephrase`, `factcheck`, `algorithm_predict` | `POST /v1/tools/*` | no cap | no cap | no cap | no cap |
+| `inline_edit`, `rephrase`, `factcheck` | `POST /v1/tools/*` | no cap | no cap | no cap | no cap |
 
 The uncapped actions read no live data, so credits are what bound them (plus, for refine, the 10-collections-a-day allowance, and for cover generation, the account's own daily and monthly cover caps).
 
