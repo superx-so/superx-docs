@@ -964,6 +964,160 @@ paths:
         "502": { $ref: "#/components/responses/UpstreamError" }
         "503": { $ref: "#/components/responses/AccountsUnavailable" }
 
+  /v1/posts/triage:
+    post:
+      tags: [Tools]
+      operationId: postTriage
+      summary: Sort recent posts on a topic into Read, Pass or Not sure
+      description: |
+        Searches recent public posts for a topic and sorts them into three
+        lanes: `read`, `pass` and `unsure`. Up to 40 posts a run.
+
+        Every post comes back with its lane, a `pct`, a `kind` (`insight`,
+        `story`, `data`, `progress`, `news`, `question`, `intro`, `launch`,
+        `joke` or `opinion`) and the `answers` behind the call: is it
+        specific and informative, does it say something a regular reader of
+        the topic has not already heard, is it engagement bait, is it a plug,
+        is it a platitude, and is there room to add something in a reply.
+        Each answer is a probability between 0 and 1.
+
+        **`pct` is how clear the call was, not how good the post is.** On
+        `read` and `pass` it runs 50 to 99, so a post that is confidently not
+        worth reading is a `pass` at 99; on `unsure` it is the raw
+        worth-reading score. Always read it together with `lane`, and never
+        rank posts by it across lanes.
+
+        The searches ask for original posts, English only, with a floor of 30
+        likes. Replies and reposts are never returned. None of those three is
+        settable by the caller: the like floor is the one the lane thresholds
+        were tuned against, so a very new or very small topic can come back
+        empty. Treat the floor as the search's request rather than a
+        guarantee about `counts.likes`, since upstream applies it against its
+        own snapshot and a few posts do come back under it.
+
+        **What is judged is the TEXT of a post.** No author, handle, avatar
+        or follower count is in what the model reads, so a result is a call
+        on the writing, never a rating of a person or an account.
+
+        `query` is searched as typed. A plain multi-word query with no quotes
+        or operators is ALSO searched as an exact phrase, so a topic catches
+        both the broad matches and the posts that name it outright; a query
+        that already carries quotes, a field lookup, `OR` / `AND` or an
+        exclusion is searched exactly once, as written.
+
+        `max_age_days` (1 to 7, default 3) is how far back to look.
+        `posts_searched` counts the distinct posts left after duplicates and
+        posts marked sensitive upstream are dropped, and before the 40-post
+        cap; `receipt` reports what the run cost in posts judged, questions
+        answered, milliseconds and US dollars of model spend.
+
+        A post the safety question flags is dropped before it is returned,
+        and so is one whose judgement failed, so `posts` can be shorter than
+        `receipt.posts`.
+
+        Two fields come back as an empty string rather than being omitted
+        when upstream gave nothing usable: `kind` (no readable label) and
+        `created_at` (no readable timestamp). Treat an empty string as
+        "unknown" rather than assuming the field is always populated.
+
+        Nothing is posted, saved or sent.
+
+        A flat 2 credits per run, and each plan has a daily cap on how many
+        runs it gets. The searches spend the key owner's own live X
+        allowance, the one shared with Ask SuperX in the app: 1 lookup for a
+        single-word query, 2 for a multi-word one. So a 429 here can also
+        carry `lookup_quota_exceeded`, and on THIS endpoint that error
+        carries a `code` and a `message` only, with no `retry_after` field
+        and no `Retry-After` header: it resets at midnight UTC, except for
+        the short-lived "could not be verified" case, which is worth one
+        retry a minute later. A run that finds nothing to judge returns 200
+        with an empty `posts` array and charges no credits, but it still
+        counts against the daily cap. Needs a key with the `write` scope.
+
+        A 503 here is `upstream_unavailable` when live X data is throttling
+        SuperX, or `accounts_unavailable` when linked-account verification is
+        briefly unreadable. Both are safe to retry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TriageRequest" }
+            example:
+              query: "coding agents"
+              max_age_days: 3
+      responses:
+        "200":
+          description: The sorted posts and the run's receipt.
+          headers:
+            X-Credits-Charged: { $ref: "#/components/headers/X-Credits-Charged" }
+            X-Credits-Remaining: { $ref: "#/components/headers/X-Credits-Remaining" }
+            X-Credits-Reset: { $ref: "#/components/headers/X-Credits-Reset" }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/TriageData" }
+                  meta: { $ref: "#/components/schemas/ToolMeta" }
+              example:
+                data:
+                  query: "coding agents"
+                  max_age_days: 3
+                  posts_searched: 34
+                  posts:
+                    - id: "2100458357006205177"
+                      url: "https://x.com/example/status/2100458357006205177"
+                      text: "We moved our test suite onto a coding agent for a week. It fixed 41 of 60 flaky tests and broke 3, and the 3 it broke were all in the same file."
+                      created_at: "2026-09-17T05:34:31.000Z"
+                      author:
+                        name: "Example Person"
+                        handle: "example"
+                        avatar: "https://pbs.twimg.com/profile_images/1466482275361562626/jP_Sgq2A_400x400.jpg"
+                        verified: true
+                      media: []
+                      counts:
+                        likes: 1652
+                        replies: 114
+                        reposts: 382
+                        views: 350188
+                      lane: read
+                      pct: 79
+                      kind: data
+                      answers:
+                        r_specific: 0.88
+                        r_new: 0.74
+                        r_bait: 0.03
+                        r_promo: 0.02
+                        r_platitude: 0.02
+                        r_reply_room: 0.66
+                        farm: 0
+                  receipt:
+                    posts: 34
+                    questions_answered: 272
+                    ms: 2637
+                    usd: 0.0029
+                meta:
+                  credits_charged: 2
+                  account_id: "1178367350552305665"
+        "400": { $ref: "#/components/responses/InvalidParameter" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/WriteForbidden" }
+        "429": { $ref: "#/components/responses/AiActionLimited" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "502": { $ref: "#/components/responses/UpstreamError" }
+        "503":
+          description: |
+            `upstream_unavailable` when live X data is throttling SuperX, or
+            `accounts_unavailable` when linked-account verification is briefly
+            unreadable. Both are safe to retry; nothing was charged.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+              example:
+                error:
+                  code: upstream_unavailable
+                  message: "The post search is temporarily unavailable. Retry shortly."
+
   /v1/replies:
     get:
       tags: [Content]
@@ -10709,6 +10863,184 @@ components:
               description: When the scoring engine was fit.
             question_set:
               type: string
+
+    TriageRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 2
+          maxLength: 80
+          description: |
+            What to search for, on one line: a topic, a phrase, a hashtag, or
+            a search expression with quotes or operators. A plain multi-word
+            query is also searched as an exact phrase.
+        max_age_days:
+          type: integer
+          minimum: 1
+          maximum: 7
+          default: 3
+          description: How far back to search, in days.
+        account_id:
+          type: string
+
+    TriagedPostMedia:
+      type: object
+      description: |
+        One image, video or gif attached to the post. Video and gif carry a
+        still frame in `poster`; the playable file is not returned.
+      properties:
+        kind:
+          type: string
+          enum: [image, video, gif]
+        url:
+          type: string
+          description: The image, or the still frame for a video or a gif.
+        poster:
+          type: string
+          description: Still frame. Present on video and gif only.
+        w:
+          type: integer
+          description: Original width in pixels, omitted when upstream did not report it.
+        h:
+          type: integer
+          description: Original height in pixels, omitted when upstream did not report it.
+
+    TriagedPost:
+      type: object
+      description: |
+        One judged post. The lane, the percentage and the answers all come
+        from the TEXT of the post: nothing about its author is in what the
+        model reads.
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          description: Link to the post on X.
+        text:
+          type: string
+        created_at:
+          type: string
+          description: |
+            When the post went out, UTC ISO-8601. An EMPTY STRING when
+            upstream gave no usable timestamp, so parse defensively rather
+            than assuming a date is always there.
+        author:
+          type: object
+          description: Who posted it, for display only. The model never saw any of it.
+          properties:
+            name: { type: string }
+            handle: { type: string }
+            avatar: { type: string }
+            verified: { type: boolean }
+        media:
+          type: array
+          items: { $ref: "#/components/schemas/TriagedPostMedia" }
+        counts:
+          type: object
+          properties:
+            likes: { type: integer }
+            replies: { type: integer }
+            reposts:
+              type: integer
+              description: Reposts and quotes together.
+            views: { type: integer }
+        lane:
+          type: string
+          enum: [read, pass, unsure]
+          description: |
+            `read` is worth a reader's time, `pass` is not, and `unsure` is
+            the middle the rule refuses to call either way.
+        pct:
+          type: integer
+          description: |
+            **How CLEAR the call was, not how good the post is. Always read it
+            together with `lane`, never on its own.**
+
+            On `read` and on `pass` it runs 50 to 99, measuring the distance
+            from the threshold in whichever direction the lane went: a post
+            that is confidently NOT worth reading is a `pass` at 99, exactly
+            as a clearly worthwhile post is a `read` at 99. An anti-signal
+            strong enough to fail a post on its own is always 99.
+
+            On `unsure` it is the raw worth-reading score instead, which is
+            what makes that lane interesting.
+
+            So never sort or compare posts by `pct` across lanes, and never
+            render it as a quality score.
+        kind:
+          type: string
+          enum: ["", insight, story, data, progress, news, question, intro, launch, joke, opinion]
+          description: |
+            What sort of post it is. An EMPTY STRING when no readable label
+            came back, so treat that as "unknown" rather than as a category.
+        answers:
+          type: object
+          description: |
+            The yes/no questions behind the call, each a probability from 0 to
+            1. Quote these when explaining a lane rather than inventing a
+            reason.
+          properties:
+            r_specific:
+              type: number
+              description: Names a particular that carries information (a result, a mechanism, a mistake and its cost).
+            r_new:
+              type: number
+              description: Says something a regular reader of this topic has not already heard many times.
+            r_bait:
+              type: number
+              description: "Engagement bait: reply, like, follow or connect asks, or a cliffhanger with no content."
+            r_promo:
+              type: number
+              description: Primarily sells, launches or plugs something.
+            r_platitude:
+              type: number
+              description: Motivational or aphoristic filler with no information.
+            r_reply_room:
+              type: number
+              description: A knowledgeable reader could add something worthwhile in a reply.
+            farm:
+              type: number
+              description: |
+                How much the post's own counts look like engagement farming
+                (replies or reposts far out of step with likes). Read off the
+                counts rather than the words, so it is the one figure here
+                that is not a question about the text.
+
+    TriageReceipt:
+      type: object
+      description: What the run actually cost.
+      properties:
+        posts:
+          type: integer
+          description: Posts judged, including any dropped before they were returned.
+        questions_answered:
+          type: integer
+        ms:
+          type: integer
+          description: Wall-clock milliseconds spent judging the batch.
+        usd:
+          type: number
+          description: Measured model spend for the run, in US dollars.
+
+    TriageData:
+      type: object
+      properties:
+        query:
+          type: string
+          description: The query as searched, trimmed.
+        max_age_days:
+          type: integer
+        posts_searched:
+          type: integer
+          description: Distinct posts the searches returned, before the 40-post cap.
+        posts:
+          type: array
+          description: The judged posts, most liked first. Can be shorter than `receipt.posts`.
+          items: { $ref: "#/components/schemas/TriagedPost" }
+        receipt: { $ref: "#/components/schemas/TriageReceipt" }
 
     DraftOutreachRequest:
       type: object

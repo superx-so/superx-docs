@@ -78,6 +78,7 @@ Typical costs today:
 | `POST /v1/posts/remix` | Measured, typically 2 |
 | `POST /v1/tools/inline-edit`, `/rephrase`, `/factcheck` | Measured, typically 1 each |
 | `POST /v1/posts/viral-score` | Flat and cheap: 1 credit per 10 scores, plus 1 the first time an account's baseline is built |
+| `POST /v1/posts/triage` | Flat 2 per run, whatever the run finds. A run with nothing to judge charges 0 and still counts against the daily cap. Also spends the live searches it runs |
 | `POST /v1/context/style-guide/regenerate` | Free |
 | `POST /v1/context/products/{id}/scrape` | Free |
 | `POST /v1/signals/keywords/suggest`, `/v1/signals/icp/expand`, `/v1/signals/icp/expand-from-url` | Free |
@@ -127,6 +128,7 @@ Some AI actions also carry a per-day count cap per plan, so an unusually cheap r
 | `lead_search` | `POST /v1/signals/leads/search` | 2 | 10 | 25 | 50 |
 | `research_profiles` | `POST /v1/datasets` with `source: "research"` | 10 | 50 | 100 | 250 |
 | `viral_score` | `POST /v1/posts/viral-score` | 50 | 300 | 1,000 | 2,000 |
+| `posts_triage` | `POST /v1/posts/triage` | 20 | 60 | 150 | 300 (the 300-a-day lookup allowance binds first at higher tiers) |
 | `draft_outreach_dms` | `POST /v1/datasets/{id}/outreach-drafts` | no cap | no cap | no cap | no cap |
 | `refine_dataset` | `POST /v1/datasets/{id}/refine` | no cap | no cap | no cap | no cap |
 | `article_cover` | `POST /v1/articles/{id}/cover` | no cap | no cap | no cap | no cap |
@@ -152,7 +154,7 @@ Credit and action limits fail closed: when SuperX cannot verify your balance or 
 
 ### Fair-use ceiling on live-data actions
 
-The actions that read X live for you (a lead search, a research run, and the style-guide fallback below) also draw on a platform-wide daily ceiling shared by every SuperX account. It exists so that no single integration can exhaust what everyone else relies on; it is generous enough that normal use never meets it, and it is not a per-account quota you can raise by upgrading.
+The actions that read X live for you (a lead search, a research run, a triage run, and the style-guide fallback below) also draw on a platform-wide daily ceiling shared by every SuperX account. It exists so that no single integration can exhaust what everyone else relies on; it is generous enough that normal use never meets it, and it is not a per-account quota you can raise by upgrading.
 
 Reaching it returns the same `429 ai_action_limited`, with `scope: "platform"` instead of `"account"`:
 
@@ -177,6 +179,8 @@ One free endpoint reaches this ceiling too. `POST /v1/context/style-guide/regene
 The `/v1/x/*` endpoints read X live rather than SuperX's stored data, so they carry a second limit on top of the enrichment bucket above: an allowance of **300 live lookups per account per UTC day**, SHARED with Ask SuperX inside the SuperX app. Heavy API use eats into what Ask can look up that day, and the other way around. Over the allowance returns `429 lookup_quota_exceeded`:
 
 `POST /v1/engage/reply-draft` with a `post_id` reads the post live, so it spends one lookup from the same 300 a day. Pass `post` with the wording instead and it spends none.
+
+`POST /v1/posts/triage` searches X live, so it draws on the SAME 300 a day: one lookup for a single-word `query`, and two for a multi-word one (it also runs the query as an exact phrase). Over the allowance it answers `429 lookup_quota_exceeded` like the `/v1/x/*` endpoints, though on that endpoint the body carries a `code` and a `message` only, with no `retry_after` field and no `Retry-After` header.
 
 Profile research (`POST /v1/datasets` with `source: "research"`) reads X live too, so it draws on the SAME 300 a day: one or two lookups per profile it researches. It does not answer `429` when the allowance runs out mid-run, though. The profiles it could not read come back in `meta.skipped` with a reason, only the profiles it did research are charged, and a run where nothing could be read answers `200` with `data: null` and every credit returned.
 

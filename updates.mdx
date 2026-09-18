@@ -3,6 +3,27 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-09-19: Triage a topic into Read, Pass or Not sure
+
+Finding what is worth reading on a topic meant scrolling it yourself. One call now searches recent public posts and sorts them into three lanes, with the yes/no answers behind every call.
+
+**API**
+
+- `POST /v1/posts/triage` takes `query` (2-80 characters) and optional `max_age_days` (1-7, default 3), searches recent public posts and returns up to 40 of them sorted into `lane` `read`, `pass` or `unsure`. Each post carries `pct`, a `kind` (`insight`, `story`, `data`, `progress`, `news`, `question`, `intro`, `launch`, `joke`, `opinion`) and `answers`: specific and informative, says something new, engagement bait, a plug, a platitude, and room to add something in a reply
+- **`pct` is how clear the call was, not how good the post is.** On `read` and `pass` it runs 50 to 99, measured away from the threshold in whichever direction the lane went, so a post that is confidently not worth reading is a `pass` at 99. On `unsure` it is the raw worth-reading score. Read it together with `lane` and never rank across lanes by it
+- The searches ask for original posts, English only, with a floor of 30 likes, and never return replies or reposts. The like floor is the one the lane thresholds were tuned against, so it is fixed rather than a parameter, and it is what the search asks for rather than a guarantee: a few posts come back under it
+- **It judges the text.** No author, handle or follower count is in what the model reads, so a result is a call on the writing and never a rating of a person. The author block comes back for display only
+- A plain multi-word `query` is also searched as an exact phrase; a query that already carries quotes, a field lookup, `OR` / `AND` or an exclusion is searched once, as written. `posts_searched` says how many distinct posts the searches found before the 40-post cap, and `receipt` reports posts judged, questions answered, milliseconds and model spend
+- A flat 2 credits a run, with a per-day cap of 20 on trial, 60 on pro, 150 on advanced and 300 on ultra. The searches spend your own live X allowance, the one shared with Ask SuperX in the app: 1 lookup for a single-word query, 2 for a multi-word one, out of 300 a day, which is what binds first on the higher plans. A run that finds nothing charges no credits and still counts against the daily cap. Nothing is posted, saved or sent
+
+**MCP**
+
+- `triage_posts`, with the same fields as the endpoint. Reconnect the server to pick it up
+
+**CLI**
+
+- `superx posts:triage "coding agents"` (`--days` 1-7, `--account`)
+
 ## 2026-09-18: Agent skills, one folder each
 
 The same recipes used to live under three names in three places, and they had drifted: the agent package said "playbooks", the app said "skills", and the two sets were not even the same 29. There is now one set of 30 skills, each a folder in the [superx-agent](https://github.com/superx-so/superx-agent) repo, and everything else is generated from it.
