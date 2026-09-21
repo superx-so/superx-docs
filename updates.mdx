@@ -3,22 +3,22 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
-## 2026-09-21: Analytics count original posts only
+## 2026-09-21: Analytics separate posts from replies
 
-Analytics used to count every row an account wrote, so replies and reposts landed in the post count and their engagement was mixed into the totals. An account that replies a lot looked like it posted far more than it did. Totals and per-day series now cover original posts only, and the account's own replies and reposts are counted on their own.
+Analytics used to count every row an account wrote, so replies to other people and reposts landed in the post count and their engagement was mixed into the totals. An account that replies a lot looked like it posted far more than it did. Totals and per-day series now cover the account's own posts, which means original posts plus thread continuations, and the replies it sent to other accounts are counted on their own.
 
 **API**
 
-- `GET /v1/posts/analytics`: `totals.posts` and each series day's `posts` count original posts only. Quote posts still count as posts
-- New `replies_sent` and `reposts_sent` in `totals` and in every series day: the replies and reposts the account itself sent in the range. They are never posts, so never add them to `posts`
-- `likes`, `replies`, `reposts`, `quotes`, `bookmarks` and `impressions` are now the engagement the original posts received. For an account that replies often these figures are lower than before, because the engagement its replies picked up is no longer counted
+- `GET /v1/posts/analytics`: `totals.posts` and each series day's `posts` count original posts plus thread continuations, which are replies to the account's own posts. Quote posts still count as posts. Replies to other accounts and reposts never do
+- New `replies_sent` and `reposts_sent` in `totals` and in every series day: the replies the account sent to other accounts, and the reposts it made, in the range. They are never posts, so never add them to `posts`
+- `likes`, `replies`, `reposts`, `quotes`, `bookmarks` and `impressions` are now the engagement the counted posts received. For an account that replies to other people often these figures are lower than before, because the engagement those replies picked up is no longer counted
 - `replies` and `reposts` stay engagement received. `replies_sent` and `reposts_sent` are the account's own activity. The two pairs measure different things
-- Detection rule: a post with either reply field set counts as a reply, text that starts with `RT @` counts as a repost, and everything else, quote posts included, counts as a post
+- Detection rule: a reply whose target is the account itself is a thread continuation and counts as a post, a reply to anyone else counts as a reply, text that starts with `RT @` counts as a repost, and everything else, quote posts included, counts as a post. A reply with no target account on record stays a reply
 - The previous post count is `posts + replies_sent + reposts_sent`, so an existing chart can be kept as it was by adding the three
 
 **MCP**
 
-- `get_account_overview` returns the same totals, and each day in `recent_daily` carries `replies_sent`. Its `note` field now states which number is which. Reconnect the server to pick up the new description
+- `get_account_overview` returns the same totals as the endpoint, and each day in `recent_daily` carries `replies_sent`. Its `note` field now states which number is which. Reconnect the server to pick up the new description
 
 ## 2026-09-19: Triage a topic into Read, Pass or Not sure
 
