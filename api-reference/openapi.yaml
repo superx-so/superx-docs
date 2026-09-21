@@ -281,8 +281,11 @@ paths:
       summary: Get analytics
       description: |
         Totals and a per-day series (posts, engagement, impressions, follower
-        samples) for the selected account. Default range is the last 30 days;
-        the maximum range is 366 days.
+        samples) for the selected account. Totals and series cover the
+        account's original posts only: the replies and reposts it sent are
+        counted separately as replies_sent and reposts_sent, and every
+        engagement figure is what those original posts received. Default range
+        is the last 30 days; the maximum range is 366 days.
       parameters:
         - $ref: "#/components/parameters/AccountId"
         - $ref: "#/components/parameters/Since"
@@ -308,6 +311,8 @@ paths:
                     until: "2026-07-06T00:00:00.000Z"
                   totals:
                     posts: 92
+                    replies_sent: 140
+                    reposts_sent: 6
                     likes: 4110
                     replies: 380
                     reposts: 512
@@ -321,6 +326,8 @@ paths:
                   series:
                     - date: "2026-07-04"
                       posts: 3
+                      replies_sent: 5
+                      reposts_sent: 0
                       likes: 140
                       replies: 12
                       reposts: 17
@@ -330,6 +337,8 @@ paths:
                       followers: 12520
                     - date: "2026-07-05"
                       posts: 4
+                      replies_sent: 7
+                      reposts_sent: 1
                       likes: 231
                       replies: 18
                       reposts: 40
@@ -9514,18 +9523,35 @@ components:
       properties:
         posts:
           type: integer
+          description: Original posts in range; replies and reposts are excluded.
+        replies_sent:
+          type: integer
+          description: The account's own replies in range.
+        reposts_sent:
+          type: integer
+          description: The account's own reposts in range.
         likes:
           type: integer
+          description: Likes received by the original posts in range.
         replies:
           type: integer
+          description: >-
+            Replies received by the original posts in range, not replies the
+            account sent. See replies_sent for those.
         reposts:
           type: integer
+          description: >-
+            Reposts received by the original posts in range, not reposts the
+            account made. See reposts_sent for those.
         quotes:
           type: integer
+          description: Quote posts received by the original posts in range.
         bookmarks:
           type: integer
+          description: Bookmarks received by the original posts in range.
         impressions:
           type: integer
+          description: Impressions received by the original posts in range.
 
     AnalyticsDay:
       allOf:
