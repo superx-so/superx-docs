@@ -7,6 +7,8 @@ description: "API changes, newest first."
 
 Analytics used to count every row an account wrote, so replies to other people and reposts landed in the post count and their engagement was mixed into the totals. An account that replies a lot looked like it posted far more than it did. Totals and per-day series now cover the account's own posts, which means original posts plus thread continuations, and the replies it sent to other accounts are counted on their own.
 
+The same rule also decides what the post and reply listings return, so the API and MCP now count posts on one shared basis.
+
 **API**
 
 - `GET /v1/posts/analytics`: `totals.posts` and each series day's `posts` count original posts plus thread continuations, which are replies to the account's own posts. Quote posts still count as posts. Replies to other accounts and reposts never do
@@ -15,10 +17,18 @@ Analytics used to count every row an account wrote, so replies to other people a
 - `replies` and `reposts` stay engagement received. `replies_sent` and `reposts_sent` are the account's own activity. The two pairs measure different things
 - Detection rule: a reply whose target is the account itself is a thread continuation and counts as a post, a reply to anyone else counts as a reply, text that starts with `RT @` counts as a repost, and everything else, quote posts included, counts as a post. A reply with no target account on record stays a reply
 - The previous post count is `posts + replies_sent + reposts_sent`, so an existing chart can be kept as it was by adding the three
+- `GET /v1/posts` with `type=posts` returns original posts, quote posts and thread continuations, which are replies to your own posts. Replies to other accounts and reposts are no longer in it. `type=replies` returns replies to other accounts, and `type=all` still returns everything the account wrote
+- `GET /v1/replies` lists the replies sent to other accounts. A reply to one of your own posts is a thread continuation and is listed under `GET /v1/posts` instead
+- Every post carries two new fields: `is_repost`, true on a repost, and `is_thread`, true on a thread continuation. `is_reply` is now true only on a reply to another account, so a thread continuation reads `is_reply: false` with `is_thread: true`
 
 **MCP**
 
 - `get_account_overview` returns the same totals as the endpoint, and each day in `recent_daily` carries `replies_sent`. Its `note` field now states which number is which. Reconnect the server to pick up the new description
+- `get_post_analytics` lists posts on the same basis, with a thread continuation flagged `is_thread`. `get_my_replies` lists the replies sent to other accounts, so a thread continuation no longer shows up there
+
+**In the app**
+
+- Ask SuperX's `get_user_posts` flags a thread continuation with `is_thread` and keeps `is_reply` for replies to other accounts, and Ask is told to count a thread continuation as a post
 
 ## 2026-09-19: Triage a topic into Read, Pass or Not sure
 

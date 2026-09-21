@@ -217,7 +217,12 @@ paths:
         - $ref: "#/components/parameters/AccountId"
         - name: type
           in: query
-          description: Which posts to include.
+          description: >-
+            Which posts to include. `posts` returns original posts, quote
+            posts and thread continuations (replies to your own posts), never
+            replies to other accounts and never reposts. `replies` returns
+            replies to other accounts. `all` returns everything the account
+            wrote, reposts included.
           schema:
             type: string
             enum: [posts, replies, all]
@@ -255,6 +260,8 @@ paths:
                     posted_at: "2026-07-05T14:02:11.000Z"
                     url: "https://x.com/mainhandle/status/1941123456789012345"
                     is_reply: false
+                    is_repost: false
+                    is_thread: false
                     in_reply_to_id: null
                     is_quote: false
                     thread_id: "1941123456789012345"
@@ -1134,7 +1141,9 @@ paths:
       operationId: listReplies
       summary: List replies you sent
       description: |
-        Replies the selected account has posted, newest first.
+        Replies the selected account sent to other accounts, newest first. A
+        reply to one of your own posts is a thread continuation, a post in its
+        own right: it is listed under `GET /v1/posts` and never here.
 
         Page 1 of an unfiltered listing also includes replies sent from the
         SuperX app's Engage tab in the last 4 hours. Those live only in
@@ -1176,6 +1185,8 @@ paths:
                     posted_at: "2026-07-05T16:20:00.000Z"
                     url: "https://x.com/mainhandle/status/1941200000000000001"
                     is_reply: true
+                    is_repost: false
+                    is_thread: false
                     in_reply_to_id: "1941199999999999999"
                     is_quote: false
                     thread_id: "1941199999999999999"
@@ -9470,6 +9481,20 @@ components:
           type: string
         is_reply:
           type: boolean
+          description: >-
+            True when this is a reply to another account. A reply to one of
+            your own posts is a thread continuation, so it reads false here
+            and true on `is_thread`. A reply whose target account is not on
+            record reads true.
+        is_repost:
+          type: boolean
+          description: True when this row is a repost of someone else's post.
+        is_thread:
+          type: boolean
+          description: >-
+            True when this is a thread continuation, a reply to one of your
+            own posts. It counts as a post everywhere in the API, never as a
+            reply.
         in_reply_to_id:
           type: string
           nullable: true

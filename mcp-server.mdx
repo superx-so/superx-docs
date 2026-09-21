@@ -37,10 +37,10 @@ For the tool chains behind a whole job (a weekly recap, a week of posts, a queue
 | Tool | Description |
 | --- | --- |
 | `get_account_overview` | Follower count and trend, plus posting totals over a date range |
-| `get_post_analytics` | Published posts with per-post metrics, top performers or most recent |
+| `get_post_analytics` | Published posts with per-post metrics, top performers or most recent; a thread continuation (a reply to your own post) counts as a post and is flagged `is_thread` |
 | `get_top_contacts` | The people who engage with the account most (90-day window) |
 | `get_contact_history` | One contact's reply history to the account |
-| `get_my_replies` | Replies the account has sent, newest or best-performing first |
+| `get_my_replies` | Replies the account sent to other accounts, newest or best-performing first; thread continuations are posts, so they are listed by `get_post_analytics` instead |
 | `get_scheduled_posts` | Drafts and the scheduled queue for an account |
 | `find_inspiration` | Search a library of 50M+ high-performing posts by topic |
 | `list_engage_feeds` | The account's saved Engage feeds (keyword and list feeds) with id, type and fetch_units |
