@@ -54,7 +54,7 @@ The credentials file takes priority over the environment variable when both exis
 | `superx posts:triage <query>` | Sort recent public posts on a topic into Read, Pass or Not sure (`--days` 1-7, default 3). Judges the text, never the author |
 | `superx replies:list` | List replies the account has sent (newest first) |
 | `superx replies:received` | List replies the audience has sent the account across all its posts |
-| `superx inspiration:search <query>` | Search a library of 50M+ high-performing posts for inspiration |
+| `superx inspiration:search <query>` | Search a library of 50M+ high-performing posts for inspiration (`--sort` including `outlier`, `--min-followers`/`--max-followers`, `--min-outlier-score`, `--min-likes`, `--min-length`, `--exclude-topics`) |
 | `superx engage:feeds` | List the Engage feeds saved in the SuperX app (id, name, type, active, fetch_units) |
 | `superx engage:posts <feed-id>` | Fetch candidate posts from one Engage feed for review (`--limit`, `--mode top` or `latest`, `--fresh`, `--exclude` ids to page); replies are sent by a person in SuperX |
 | `superx engage:feeds:create` | Save a new Engage feed (`--name` plus exactly one source: repeatable `--keyword`, `--x-list` id or link, or `--list-id`); it does not become the feed the app has open |

@@ -3,6 +3,24 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-10-03: Inspiration filters by outlier score and author size
+
+You can now ask the inspiration library for posts that beat the norm for their author's size, not just posts with big numbers. `outlier_score` is a post's engagement rate divided by the expected rate for its author's follower tier: 1.0 = expected, 3.0 = three times expected. A new minimum keeps only posts at or above a score, and the MCP tool now has the same follower range, sort and engagement filters as the API and CLI.
+
+**API**
+
+- `GET /v1/inspiration`: new `min_outlier_score` (number, 0 to 1000, rounded to 1 decimal). Posts whose author's follower count is unknown have no score and are left out when it is set above 0. Values outside 0 to 1000 or not a number return `400 invalid_parameter`
+- The `outlier_score` description is corrected. It is the plain ratio rounded to 1 decimal, where 1.0 = expected for the author's follower tier. It was wrongly documented as multiplied by 10. The returned values have not changed
+
+**MCP**
+
+- `find_inspiration` takes new optional inputs: `min_followers` and `max_followers` (for a 1k to 10k band pass 1000 and 9999), `min_outlier_score`, `sort` (`relevant`, `recent`, `likes`, `reposts`, `impressions` or `outlier`), `min_reposts`, `min_replies`, `min_bookmarks`, `min_impressions`, `min_length`, `exclude_topics` (`crypto`, `politics`, `nsfw`, `selfpromo`) and `page` (1 to 7). `min_followers` above `max_followers` returns an error
+- Each post now returns `outlier_score` and `bookmarks`, and the result carries `page` and `has_more`. Existing inputs and fields are unchanged. Reconnect the server to see the new schema
+
+**CLI**
+
+- `superx inspiration:search` gains `--min-outlier-score` and `--min-length`
+
 ## 2026-09-21: Analytics separate posts from replies
 
 Analytics used to count every row an account wrote, so replies to other people and reposts landed in the post count and their engagement was mixed into the totals. An account that replies a lot looked like it posted far more than it did. Totals and per-day series now cover the account's own posts, which means original posts plus thread continuations, and the replies it sent to other accounts are counted on their own.

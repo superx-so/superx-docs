@@ -1280,10 +1280,10 @@ paths:
         heuristic; `has_more` means more library pages may exist (pages run
         1 to 7).
 
-        Each result carries an `outlier_score`: the post's engagement rate vs
-        the expected rate for its author's follower tier, x10 (10 = expected,
-        higher = overperformed). Null when the author's follower count is
-        unknown.
+        Each result carries an `outlier_score`: the post's engagement rate
+        divided by the expected rate for its author's follower tier, rounded
+        to 1 decimal (1.0 = expected, 3.0 = three times expected, higher =
+        overperformed). Null when the author's follower count is unknown.
       parameters:
         - name: q
           in: query
@@ -1334,6 +1334,14 @@ paths:
           in: query
           description: Only posts from authors with at most this many followers.
           schema: { type: integer, minimum: 0 }
+        - name: min_outlier_score
+          in: query
+          description: |
+            Only posts with at least this `outlier_score` (1.0 = expected
+            engagement for the author's follower tier). Rounded to 1 decimal.
+            Posts whose author's follower count is unknown are left out when
+            this is above 0.
+          schema: { type: number, minimum: 0, maximum: 1000 }
         - $ref: "#/components/parameters/Since"
         - $ref: "#/components/parameters/Until"
         - name: lang
@@ -1392,7 +1400,7 @@ paths:
                     reposts: 388
                     bookmarks: 1904
                     impressions: 512000
-                    outlier_score: 14.2
+                    outlier_score: 40.5
                     author:
                       handle: "buildersam"
                       name: "Sam Fields"
@@ -9627,7 +9635,7 @@ components:
         outlier_score:
           type: number
           nullable: true
-          description: Engagement rate vs the expected rate for the author's follower tier, x10 (10 = expected, higher = overperformed). Null when the author's follower count is unknown.
+          description: Engagement rate divided by the expected rate for the author's follower tier, rounded to 1 decimal (1.0 = expected, higher = overperformed). Null when the author's follower count is unknown.
         author:
           type: object
           properties:
