@@ -4829,16 +4829,21 @@ paths:
               properties:
                 text:
                   type: string
-                  description: The post text (single post). Provide either `text` or `parts`.
+                  description: The post text (single post). Provide either `text` or `parts`. Media rides `parts`, so a post with media, including a media-only post, uses `parts`.
                 parts:
                   type: array
-                  description: Thread parts, 1 to 25 items. Total text across parts is limited to 25,000 characters.
+                  description: >-
+                    Thread parts, 1 to 25 items. Total text across parts is
+                    limited to 25,000 characters. A part's `text` is optional
+                    when the part has `media` (a media-only post) and comes
+                    back as an empty string. A post with no text and no
+                    media at all is rejected.
                   items:
                     type: object
-                    required: [text]
                     properties:
                       text:
                         type: string
+                        description: Part text. Optional when the part has `media`.
                       media:
                         type: array
                         maxItems: 4
@@ -5425,16 +5430,22 @@ paths:
               properties:
                 text:
                   type: string
-                  description: Replacement text (single post). Provide either `text` or `parts`, not both.
+                  description: Replacement text (single post). Provide either `text` or `parts`, not both. To make a post media-only, send `parts` with `media` and no `text`.
                 parts:
                   type: array
-                  description: Replacement parts (full replace, media included), 1 to 25 items, 25,000 characters total. A part without `media` drops the media it carried.
+                  description: >-
+                    Replacement parts (full replace, media included), 1 to 25
+                    items, 25,000 characters total. A part without `media`
+                    drops the media it carried. A part's `text` is optional
+                    when the part has `media` (a media-only post) and is
+                    stored as an empty string. A post with no text and no
+                    media at all is rejected.
                   items:
                     type: object
-                    required: [text]
                     properties:
                       text:
                         type: string
+                        description: Part text. Optional when the part has `media`.
                       media:
                         type: array
                         maxItems: 4

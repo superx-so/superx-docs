@@ -3,6 +3,26 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-10-03: Media-only posts
+
+A post or thread part can now be just an image or a GIF, with no text. X allows it, and the app already did, but the API, MCP and CLI asked for text on every post. Nothing that was accepted before changes: the same requests are accepted and stored the same way.
+
+**API**
+
+- `POST /v1/scheduled-posts` (drafts, scheduled posts and `scheduled_for: "now"`) and `PATCH /v1/scheduled-posts/{id}`: a part's `text` is optional when the part has `media`. A media-only part is stored and returned with `text` as an empty string
+- A post with no text and no media at all is still rejected with `400 invalid_parameter` "The post text is empty"
+- On `PATCH`, parts are still a full replace, so a part sent with `media` and no `text` loses any text it had
+
+**MCP**
+
+- `schedule_post`, `update_scheduled_post` and `publish_post` accept a part with `media` and no `text`. A part with neither is refused with "Each part needs text or media", and a call where no part has either with "The post text is empty". On `update_scheduled_post`, leaving out a part's text removes the text it had, so resend it to keep it. Reconnect the server to see the new schema
+
+**CLI**
+
+- `superx scheduled:create` and `superx posts:publish` take `--media <object_key>` without `--text` for an image-only post
+- `superx scheduled:update` takes `--text "" --media <object_key>` to make a post image-only. `--media` on its own is still refused, because the update replaces the whole post, text included
+- `--parts-json` parts may leave out `text` when they carry `media`
+
 ## 2026-10-03: Inspiration filters by outlier score and author size
 
 You can now ask the inspiration library for posts that beat the norm for their author's size, not just posts with big numbers. `outlier_score` is a post's engagement rate divided by the expected rate for its author's follower tier: 1.0 = expected, 3.0 = three times expected. A new minimum keeps only posts at or above a score, and the MCP tool now has the same follower range, sort and engagement filters as the API and CLI.
