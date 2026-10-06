@@ -3,6 +3,26 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-10-04: Workers report their shape
+
+A Worker now answers two separate questions: what its posts are about, and how each post is built. Product and custom-topic Workers can take their shape from a popular post in a niche, found by keywords, which before only `niche_trending` Workers could do. A new `shape` field tells the three shapes apart. Existing fields keep their name, type and values.
+
+**API**
+
+- `GET /v1/workers`: new `shape` on every Worker: `formats` (modeled on a proven post format), `niche` (modeled on a popular post found by the Worker's keywords) or `fresh` (written freely with only a loose format hint, and no post is closely modeled). Every `niche_trending` Worker reads `niche`. `shape` is the last key on each Worker, so the other keys keep their order
+- `style_mode` keeps its two values. A product or custom Worker shaped on a niche reports `reference_remix` there, so read `shape` to tell it apart from one that models a proven format
+- `topic_config` on a product or custom Worker shaped on a niche carries `keywords`, the same array a `niche_trending` Worker has. On these Workers the keywords only find the post to model, and the posts stay about the product or topic
+- `GET /v1/workers/suggestions`: `reference.fallback: true` appears on a suggestion from a niche-shaped Worker that found no usable popular post that run and wrote from a proven format. It is absent on every other suggestion
+
+**MCP**
+
+- `list_workers` returns `shape` for each Worker, and its description explains `topic_source` versus `shape`
+- `list_worker_suggestions` adds `fallback: true` to a suggestion from a niche-shaped Worker that found no usable popular post that run and wrote from a proven format. Reconnect the server to see the new descriptions
+
+**CLI**
+
+- No change needed: `superx workers:list` and `superx workers:suggestions` print the API's JSON as it comes, so `shape` and `reference.fallback` show up there too
+
 ## 2026-10-03: Media-only posts
 
 A post or thread part can now be just an image or a GIF, with no text. X allows it, and the app already did, but the API, MCP and CLI asked for text on every post. Nothing that was accepted before changes: the same requests are accepted and stored the same way.

@@ -4333,8 +4333,14 @@ paths:
       summary: List Workers
       description: |
         The account's Workers, newest first: the scheduled AI writers set up
-        in the SuperX app, each with its voice, topic source, batch size,
-        schedule and next run time.
+        in the SuperX app, each with its voice, topic source, shape, batch
+        size, schedule and next run time.
+
+        `topic_source` is what the posts are about and `shape` is how each
+        post is built: `formats` models a proven post format, `niche` models a
+        popular post found by the Worker's keywords, `fresh` writes freely
+        with only a loose format hint, and no post is closely modeled. Read
+        `shape` rather than `style_mode` to tell them apart.
 
         Read what they wrote with `GET /v1/workers/suggestions`. Workers are
         created, edited and run in the app, so there is no create or run
@@ -4359,6 +4365,27 @@ paths:
                     items: { $ref: "#/components/schemas/Worker" }
               example:
                 data:
+                  - id: 15
+                    name: "Product posts shaped on the niche"
+                    status: "active"
+                    voice_source: "my_voice"
+                    voice_creator: null
+                    topic_source: "product"
+                    topic_config: { product_id: "aB3xWnA0kLpR7sVtYu3zc", keywords: ["restaurant ops", "staff rotas"] }
+                    style_instructions: null
+                    use_account_rules: 1
+                    format_collection: null
+                    style_mode: "reference_remix"
+                    batch_size: 3
+                    output_mode: "suggest"
+                    schedule: "weekly"
+                    schedule_time: "10:00"
+                    schedule_day: 1
+                    timezone: "Europe/London"
+                    next_run_at: "2026-10-05T09:00:00.000Z"
+                    created_at: "2026-10-04T10:00:00.000Z"
+                    updated_at: "2026-10-04T10:00:00.000Z"
+                    shape: "niche"
                   - id: 12
                     name: "Daily build in public"
                     status: "active"
@@ -4379,6 +4406,7 @@ paths:
                     next_run_at: "2026-09-13T08:00:00.000Z"
                     created_at: "2026-08-01T10:00:00.000Z"
                     updated_at: "2026-09-01T10:00:00.000Z"
+                    shape: "fresh"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/SubscriptionRequired" }
         "404": { $ref: "#/components/responses/AccountNotFound" }
@@ -11632,7 +11660,7 @@ components:
           description: Where the Worker gets what to write about.
         topic_config:
           type: object
-          description: The topic settings behind topic_source, for example the product it writes about or the custom topic text.
+          description: The topic settings behind topic_source, for example the product it writes about or the custom topic text. `keywords` (an array of strings) holds the niche keywords. It is set on niche_trending Workers and can also be set on product and custom Workers, where it finds the popular post the Worker models when `shape` is niche. Older niche_trending Workers may carry a single `query` string in place of `keywords`.
         style_instructions:
           type: string
           nullable: true
@@ -11648,7 +11676,7 @@ components:
         style_mode:
           type: string
           enum: [one_shot, reference_remix]
-          description: one_shot writes fresh; reference_remix mirrors the shape of a real high-performing post.
+          description: one_shot writes fresh; reference_remix mirrors the shape of a real high-performing post. Kept for compatibility, so this enum does not grow. A product or custom Worker shaped on a niche reports reference_remix here; read `shape` to tell the two apart.
         batch_size:
           type: integer
           description: Posts produced per run.
@@ -11682,6 +11710,10 @@ components:
           type: string
           format: date-time
           nullable: true
+        shape:
+          type: string
+          enum: [formats, niche, fresh]
+          description: How each post is built. formats = modeled on a proven post format; niche = modeled on a popular post found by the Worker's keywords (every niche_trending Worker, and product or custom Workers set to shape on a niche); fresh = written freely with only a loose format hint, and no post is closely modeled.
 
     WorkerSuggestion:
       type: object
@@ -11708,6 +11740,9 @@ components:
               type: string
               enum: [collection, search]
               description: collection = a saved post-format collection, search = a high-performing post the run found. Null `reference` means the Worker wrote without one.
+            fallback:
+              type: boolean
+              description: Present only when true, on a suggestion from a niche-shaped Worker that found no usable popular post that run and wrote from a proven format (`source` is then collection). Absent on every other suggestion.
         generated_at:
           type: string
           format: date-time
