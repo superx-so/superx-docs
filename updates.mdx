@@ -19,7 +19,7 @@ A remix can now be told who originally posted the text. When that is the account
 
 - `superx posts:remix` gains `--author-handle <@handle>`
 
-## 2026-10-04: Workers report their shape
+## 2026-10-07: Workers report their shape
 
 A Worker now answers two separate questions: what its posts are about, and how each post is built. Product and custom-topic Workers can take their shape from a popular post in a niche, found by keywords, which before only `niche_trending` Workers could do. A new `shape` field tells the three shapes apart. Existing fields keep their name, type and values.
 
@@ -29,6 +29,7 @@ A Worker now answers two separate questions: what its posts are about, and how e
 - `style_mode` keeps its two values. A product or custom Worker shaped on a niche reports `reference_remix` there, so read `shape` to tell it apart from one that models a proven format
 - `topic_config` on a product or custom Worker shaped on a niche carries `keywords`, the same array a `niche_trending` Worker has. On these Workers the keywords only find the post to model, and the posts stay about the product or topic
 - `GET /v1/workers/suggestions`: `reference.fallback: true` appears on a suggestion from a niche-shaped Worker that found no usable popular post that run and wrote from a proven format. It is absent on every other suggestion
+- `POST /v1/posts/draft` with a `mirror`, and MCP `draft_post`: the reference guard that Workers apply to a collection post now runs on the pasted mirror too, so a list-style post or an engagement-bait post is refused with `400 mirror_rejected` before anything is charged. In our check 8 of 2,528 library posts hit it. Pass the plain text of a substantial post instead
 
 **MCP**
 
@@ -39,7 +40,7 @@ A Worker now answers two separate questions: what its posts are about, and how e
 
 - No change needed: `superx workers:list` and `superx workers:suggestions` print the API's JSON as it comes, so `shape` and `reference.fallback` show up there too
 
-## 2026-10-03: Media-only posts
+## 2026-10-07: Media-only posts
 
 A post or thread part can now be just an image or a GIF, with no text. X allows it, and the app already did, but the API, MCP and CLI asked for text on every post. Nothing that was accepted before changes: the same requests are accepted and stored the same way.
 
@@ -59,7 +60,7 @@ A post or thread part can now be just an image or a GIF, with no text. X allows 
 - `superx scheduled:update` takes `--text "" --media <object_key>` to make a post image-only. `--media` on its own is still refused, because the update replaces the whole post, text included
 - `--parts-json` parts may leave out `text` when they carry `media`
 
-## 2026-10-03: Inspiration filters by outlier score and author size
+## 2026-10-07: Inspiration filters by outlier score and author size
 
 You can now ask the inspiration library for posts that beat the norm for their author's size, not just posts with big numbers. `outlier_score` is a post's engagement rate divided by the expected rate for its author's follower tier: 1.0 = expected, 3.0 = three times expected. A new minimum keeps only posts at or above a score, and the MCP tool now has the same follower range, sort and engagement filters as the API and CLI.
 
