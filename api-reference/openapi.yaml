@@ -10699,6 +10699,10 @@ components:
           type: string
           maxLength: 500
           description: Extra direction for this remix.
+        author_handle:
+          type: string
+          maxLength: 64
+          description: The @handle that originally posted the text. When it is this account's own handle the remix keeps the post's subject and products instead of re-grounding them in the profile.
         account_id:
           type: string
 

@@ -3,6 +3,22 @@ title: "Changelog"
 description: "API changes, newest first."
 ---
 
+## 2026-10-07: Remixing your own post keeps its subject
+
+A remix can now be told who originally posted the text. When that is the account's own handle, the remix keeps the post's subject, products, names and numbers and freshens only the wording, instead of re-grounding it in the profile. Leave it out and nothing changes.
+
+**API**
+
+- `POST /v1/posts/remix`: new optional `author_handle`, a string of up to 64 characters (the leading `@` is optional). Anything else is a `400 invalid_parameter`
+
+**MCP**
+
+- `remix_post` takes `author_handle` with the same meaning. Reconnect the server to see it
+
+**CLI**
+
+- `superx posts:remix` gains `--author-handle <@handle>`
+
 ## 2026-10-04: Workers report their shape
 
 A Worker now answers two separate questions: what its posts are about, and how each post is built. Product and custom-topic Workers can take their shape from a popular post in a niche, found by keywords, which before only `niche_trending` Workers could do. A new `shape` field tells the three shapes apart. Existing fields keep their name, type and values.
